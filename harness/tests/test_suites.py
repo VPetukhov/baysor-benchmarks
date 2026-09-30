@@ -37,6 +37,8 @@ def test_real_suites_resolve():
     assert noise.baseline == "bugfixes-35e8a7e"
     assert noise.celladmix is True and noise.no_ami is True
     assert noise.celltypes_from == "bugfixes-35e8a7e"
+    # committed suites keep the default: runs pass --skip-ncv-color
+    assert exact.ncv_color is False and noise.ncv_color is False
     # the coverage list: 12 trivial (6 scenarios x prior/noprior), 2 strec,
     # one 3D sim, 6 platforms at quick tier, one huge-panel crop, one admix
     assert len(noise.datasets.split(",")) == 23
@@ -163,8 +165,25 @@ def test_step_defaults(tmp_path):
     (s,) = suites.resolve("d", str(path)).steps
     assert (s.threads, s.replicates, s.timeout) == (6, 1, 1800)
     assert s.celladmix is True and s.no_ami is False
+    assert s.ncv_color is False          # default: --skip-ncv-color
     assert s.group == "only" and s.celltypes_from is None
     assert suites.step_spec(s) == "quick"
+
+
+def test_step_ncv_color_opt_out(tmp_path):
+    """A step may re-enable the NCV colour embedding with ncv_color: true."""
+    path = _write_manifest(tmp_path, """
+        suites:
+          n:
+            steps:
+              - name: only
+                datasets: quick
+                expect: same
+                baseline: b
+                ncv_color: true
+        """)
+    (s,) = suites.resolve("n", str(path)).steps
+    assert s.ncv_color is True
 
 
 def test_estimate_arithmetic(tmp_path):

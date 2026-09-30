@@ -7,6 +7,9 @@
 # cores; OMP_NUM_THREADS caps it per the suite rules.
 #
 # Environment overrides: BAYSOR_BIN (required), BENCH_PYTHON, BAYSOR_BENCH_DATA, THREADS.
+# NCV_COLOR=1 re-enables the NCV colour embedding; by default
+# --skip-ncv-color is passed when the binary supports it (the benchmark
+# never compares the colours).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,6 +20,7 @@ BAYSOR_BIN=${BAYSOR_BIN:?set BAYSOR_BIN to the Baysor binary to run}
 DS=$DATA/cache/celladmix/datasets/pancreas_crop_quick
 WORK=${WORK:-$DATA/cache/celladmix/work/validation}
 THREADS=${THREADS:-6}
+NCV_COLOR=${NCV_COLOR:-0}
 SEED=${SEED:-1}
 SRC=$DATA/cache/celladmix/src
 
@@ -25,12 +29,21 @@ mkdir -p "$WORK"
 # --- 1. Baysor segmentation (skip when present) ---------------------------
 if [[ ! -f "$WORK/baysor_seg/molecules.parquet" ]]; then
   echo "=== baysor run"
+  ncv_args=()
+  if [[ "$NCV_COLOR" != 1 ]]; then
+    help_run=$("$BAYSOR_BIN" run --help 2>&1 || true)
+    if [[ "$help_run" == *--skip-ncv-color* ]]; then
+      ncv_args=(--skip-ncv-color)
+    fi
+  fi
+  echo "ncv-color: ${ncv_args[*]:-on}"
   OMP_NUM_THREADS=$THREADS "$BAYSOR_BIN" run "$DS/molecules.parquet" \
     -x x -y y -g gene \
     -s "$(python3 -c "import json;print(json.load(open('$DS/meta.json'))['baysor']['scale_um'])")" \
     --scale-std "$(python3 -c "import json;print(json.load(open('$DS/meta.json'))['baysor']['scale_std'])")" \
     -m "$(python3 -c "import json;print(json.load(open('$DS/meta.json'))['baysor']['min_molecules_per_cell'])")" \
     --force-2d \
+    "${ncv_args[@]}" \
     -o "$WORK/baysor_seg" --output-style parquet
 fi
 

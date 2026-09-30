@@ -7,7 +7,12 @@ Three expectation modes:
   Run and baseline must both be 1-thread with exactly 1 replicate. For every
   dataset the ``assignment_sha256`` recorded per replicate in ``metrics.json``
   must match; on a mismatch the comparison fails and reports the metric
-  deltas. Baysor is bitwise-deterministic at 1 thread, so a no-behaviour-change
+  deltas. Identity is over the **segmentation content**: the sha256 covers
+  the normalized assignment table (``mol_index``, ``cell``, ``confidence``),
+  not Baysor's raw output files — NCV colour columns/files are never hashed
+  or compared anywhere, so runs made with and without ``--skip-ncv-color``
+  (the runner's default) are directly comparable. Baysor is
+  bitwise-deterministic at 1 thread, so a no-behaviour-change
   refactor must reproduce the baseline assignments exactly. A run-id of
   >= 18 characters triggers a warning: the binary's output-path-length
   sensitivity (see "Determinism findings" in the README) can flip results.
@@ -461,6 +466,22 @@ def check_sim_dataset(rep: Report, ds_id: str, run_m: dict, base_m: dict,
                  if _finite(rval) and _finite(bval) else None)
         rep.check("sim", ds_id, metric, "info",
                   baseline_mean=bval, run_mean=rval, delta=delta)
+
+
+def _ncv_colour_note(metrics: dict[str, dict]) -> str:
+    """Report whether the run/baseline skipped the NCV colour embedding.
+
+    Read from the per-replicate ``skip_ncv_color`` recorded in ``run.json``
+    (copied into ``metrics.json`` reps); purely informational — nothing in a
+    comparison reads or hashes colour output.
+    """
+    vals = {r.get("skip_ncv_color") for mm in metrics.values()
+            for r in mm.get("reps", []) if "skip_ncv_color" in r}
+    if not vals:
+        return "unknown (run.json predates the flag)"
+    if len(vals) > 1:
+        return f"mixed: {sorted(map(str, vals))}"
+    return "skipped (--skip-ncv-color)" if next(iter(vals)) else "computed"
 
 
 def load_pair_cells(run_root: Path, root: Path, baseline: str, ds_id: str,
@@ -1072,6 +1093,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.expect == "improved" and run_sha != base_sha:
         rep.meta["binary sha note"] = ("differs from baseline (expected for an "
                                        "algorithm change)")
+    # informational: the NCV colour choice never gates a comparison (colours
+    # are not part of any hash or metric), but recording it documents why a
+    # skip-colours run compares cleanly against a coloured baseline
+    rep.meta["ncv colour (run)"] = _ncv_colour_note(run_metrics)
+    rep.meta["ncv colour (baseline)"] = _ncv_colour_note(base_metrics)
     if args.expect == "identical" and len(args.run_id) >= 18:
         rep.warn(f"run-id '{args.run_id}' is {len(args.run_id)} characters; the "
                  "known 1-thread output-path-length sensitivity (see harness "

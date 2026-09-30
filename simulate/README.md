@@ -27,6 +27,10 @@ Contract: [`README.md`](../README.md).  Manifest:
   wall time, a majority-matching and a one-to-one (Hungarian) assignment
   accuracy next to the oracle (reports in `$BAYSOR_BENCH_DATA/results/simulate/`:
   `sanity_check.json`, `sanity_check_noprior.json` — local, never committed).
+  Commands pass `--skip-ncv-color` by default when the binary supports it
+  (the benchmark never compares the NCV colours); `sanity.py --ncv-color`
+  re-enables them and the effective choice is recorded per dataset as
+  `skip_ncv_color` in the report.
 * `tests/` — pytest suite, 76 tests
   (`python -m pytest simulate/tests`).
 
@@ -232,6 +236,10 @@ one sparse and one dense st-rec dataset with `meta.baysor` + `:prior`
 (≤ 6 threads), writes run outputs to
 `$BAYSOR_BENCH_DATA/runs/bench-sim-sanity/<id>/` and the report to
 `$BAYSOR_BENCH_DATA/results/simulate/sanity_check.json` (local, not in git).
+Commands pass `--skip-ncv-color` by default when the binary supports it
+(`--ncv-color` re-enables; recorded per dataset in the report), so new wall
+times are not directly comparable with older tables below, which were
+measured with the colour embedding.
 Reports record the majority-match accuracy and a
 one-to-one (Hungarian) matched accuracy — the latter is computed by
 `sanity.hungarian_match_accuracy`, a helper for this check only (the

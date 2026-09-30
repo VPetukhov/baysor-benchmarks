@@ -1337,9 +1337,31 @@ def parse_time_v(path: Path) -> tuple[float, int]:
     return wall, rss
 
 
+_SKIP_NCV_HELP_CACHE: dict[str, bool] = {}
+
+
+def baysor_supports_skip_ncv_color(binary: Path) -> bool:
+    """Whether ``binary run --help`` advertises ``--skip-ncv-color`` (cached).
+
+    A binary we cannot execute counts as unsupported (older binaries keep
+    computing the NCV colours as before).
+    """
+    key = str(binary)
+    if key not in _SKIP_NCV_HELP_CACHE:
+        try:
+            p = subprocess.run([key, "run", "--help"], capture_output=True,
+                               text=True, timeout=60)
+            text = (p.stdout or "") + (p.stderr or "")
+        except (OSError, subprocess.SubprocessError):
+            text = ""
+        _SKIP_NCV_HELP_CACHE[key] = "--skip-ncv-color" in text
+    return _SKIP_NCV_HELP_CACHE[key]
+
+
 def build_baysor_command(spec: dict, ds: Path, binary: Path, out_dir: Path,
                          time_file: Path,
-                         extra_args: Sequence[str] | None = None) -> list[str]:
+                         extra_args: Sequence[str] | None = None,
+                         skip_ncv_color: bool = True) -> list[str]:
     meta = json.loads((ds / "meta.json").read_text())
     b = meta["baysor"]
     cfg = U.baysor_config_path(b["config"])
@@ -1357,6 +1379,11 @@ def build_baysor_command(spec: dict, ds: Path, binary: Path, out_dir: Path,
     if b.get("prior_confidence") is not None:
         cmd += ["--prior-segmentation-confidence", str(b["prior_confidence"])]
     cmd += list(args)
+    # NCV colours are never compared by the benchmark: skip them by default
+    # (gated on flag support; --ncv-color / skip_ncv_color=False opts out)
+    if skip_ncv_color and "--skip-ncv-color" not in args \
+            and baysor_supports_skip_ncv_color(binary):
+        cmd += ["--skip-ncv-color"]
     cmd += ["-o", str(out_dir), str(ds / "molecules.parquet")]
     prior = b["prior"]
     if prior == "column":
@@ -1407,7 +1434,7 @@ def _last_log_stage(stdout: str, stderr: str) -> str:
 
 
 def smoke(manifest: dict, binary: Path, *, timeout_s: float = 1800.0,
-          force: bool = False) -> Path:
+          force: bool = False, ncv_color: bool = False) -> Path:
     """Run the Release binary on every quick crop and record wall time + peak RSS.
 
     Each run is capped at ``timeout_s`` (default 30 min) and killed on timeout;
@@ -1415,6 +1442,10 @@ def smoke(manifest: dict, binary: Path, *, timeout_s: float = 1800.0,
     with ``smoke_record_default_timeout`` get an extra run with the DEFAULT
     cluster method (extra_args stripped), capped at that many seconds, to
     document pathological default settings (see the WTX datasets).
+
+    ``ncv_color=False`` (default) passes ``--skip-ncv-color`` when the binary
+    supports it — the NCV colours are never compared by the benchmark; the
+    effective choice is recorded as ``skip_ncv_color`` in the results JSON.
     """
     runs_root = U.bench_data_root() / "runs" / "real_other_smoke"
     runs_root.mkdir(parents=True, exist_ok=True)
@@ -1422,6 +1453,8 @@ def smoke(manifest: dict, binary: Path, *, timeout_s: float = 1800.0,
         "binary": str(binary),
         "generated": TODAY,
         "timeout_seconds": timeout_s,
+        "skip_ncv_color": (not ncv_color)
+            and baysor_supports_skip_ncv_color(binary),
         "runs": {},
         "recorded_default_timeouts": {},
     }
@@ -1435,7 +1468,8 @@ def smoke(manifest: dict, binary: Path, *, timeout_s: float = 1800.0,
         time_file = runs_root / f"{spec['id']}.time"
         if out_dir.exists():
             shutil.rmtree(out_dir)
-        cmd = build_baysor_command(spec, ds, binary, out_dir, time_file)
+        cmd = build_baysor_command(spec, ds, binary, out_dir, time_file,
+                                   skip_ncv_color=not ncv_color)
         rc, stdout, stderr, wall_raw, timed_out = _run_baysor_capped(
             cmd, env=env, timeout_s=timeout_s
         )
@@ -1471,7 +1505,8 @@ def smoke(manifest: dict, binary: Path, *, timeout_s: float = 1800.0,
             if out_def.exists():
                 shutil.rmtree(out_def)
             cmd_def = build_baysor_command(spec, ds, binary, out_def, tf_def,
-                                           extra_args=[])
+                                           extra_args=[],
+                                           skip_ncv_color=not ncv_color)
             rc2, so2, se2, wall2, to2 = _run_baysor_capped(
                 cmd_def, env=env, timeout_s=float(cap)
             )
@@ -1544,6 +1579,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                             if os.environ.get("BAYSOR_BIN") else None),
                    help="Baysor binary to run (or set BAYSOR_BIN)")
     s.add_argument("--force", action="store_true")
+    s.add_argument("--ncv-color", action="store_true",
+                   help="re-enable the NCV colour embedding (default: "
+                        "--skip-ncv-color when the binary supports it; the "
+                        "colours are never compared by the benchmark)")
     r = sub.add_parser("report", help="print per-dataset stats as markdown")
     r.add_argument("--manifest", type=Path, default=None)
 
@@ -1570,7 +1609,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ap.error("smoke requires an explicit Baysor binary: "
                      "--binary PATH or environment BAYSOR_BIN")
         out = smoke(manifest, args.binary.resolve(), timeout_s=args.timeout,
-                    force=args.force)
+                    force=args.force, ncv_color=args.ncv_color)
         print(f"wrote {out}")
         return 0
     if args.cmd == "report":

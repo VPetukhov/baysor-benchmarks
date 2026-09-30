@@ -270,6 +270,71 @@ def test_baysor_command_construction(tmp_path):
     assert cmd[-1] == ":prior"
 
 
+# ---------------------------------------------------------------------------
+# NCV colour skipping (--skip-ncv-color by default)
+# ---------------------------------------------------------------------------
+
+def _fake_baysor(path: Path, advertises_flag: bool) -> Path:
+    """Executable stub whose `run --help` does/does not list --skip-ncv-color."""
+    path.mkdir(parents=True, exist_ok=True)
+    body = "#!/usr/bin/env bash\nif [ \"$1\" = run ] && [ \"$2\" = --help ]; then\n"
+    if advertises_flag:
+        body += ('  echo "  --skip-ncv-color  Skip neighborhood composition '
+                 'color embedding to speed up development runs"\n')
+    else:
+        body += '  echo "Usage: baysor run"\n'
+    body += "  exit 0\nfi\nexit 0\n"
+    bin_path = path / "baysor_stub"
+    bin_path.write_text(body)
+    bin_path.chmod(0o755)
+    return bin_path
+
+
+def _smoke_meta(tmp_path: Path) -> tuple[dict, Path]:
+    spec = _dummy_spec()
+    ds = tmp_path / "ds"
+    (ds / "images").mkdir(parents=True, exist_ok=True)
+    meta = O.build_meta(spec, bbox_um=[0, 0, 1, 1], z_range_um=None,
+                        n_molecules=1, n_genes=1, n_cells=1, crop_note="",
+                        images=[], prior="none", source_extra={},
+                        difficulty_notes="")
+    (ds / "meta.json").write_text(json.dumps(meta))
+    (ds / "molecules.parquet").write_bytes(b"")
+    return spec, ds
+
+
+def test_baysor_supports_skip_ncv_color(tmp_path):
+    yes = _fake_baysor(tmp_path / "yes", True)
+    no = _fake_baysor(tmp_path / "no", False)
+    assert O.baysor_supports_skip_ncv_color(yes) is True
+    assert O.baysor_supports_skip_ncv_color(no) is False
+    # unrunnable binary counts as unsupported (older builds keep colours)
+    assert O.baysor_supports_skip_ncv_color(tmp_path / "missing") is False
+
+
+def test_build_baysor_command_skip_ncv_color(tmp_path):
+    spec, ds = _smoke_meta(tmp_path)
+    yes = _fake_baysor(tmp_path / "yes", True)
+    common = dict(spec=spec, ds=ds, binary=yes,
+                  out_dir=tmp_path / "out", time_file=tmp_path / "time.txt")
+    # default: colours skipped when the binary supports the flag
+    cmd = O.build_baysor_command(**common)
+    assert cmd.count("--skip-ncv-color") == 1
+    # opt-out (smoke --ncv-color)
+    cmd = O.build_baysor_command(**common, skip_ncv_color=False)
+    assert "--skip-ncv-color" not in cmd
+    # binary without the flag: not emitted (it could not parse it)
+    no = _fake_baysor(tmp_path / "no", False)
+    cmd = O.build_baysor_command(**dict(common, binary=no))
+    assert "--skip-ncv-color" not in cmd
+    # meta extra_args already carries it: exactly one occurrence
+    meta = json.loads((ds / "meta.json").read_text())
+    meta["baysor"]["extra_args"] = ["--skip-ncv-color"]
+    (ds / "meta.json").write_text(json.dumps(meta))
+    cmd = O.build_baysor_command(**common)
+    assert cmd.count("--skip-ncv-color") == 1
+
+
 def test_ensure_label_volume_detects_labels_and_binary():
     vol = np.arange(0, 1000, dtype=np.int32).reshape(10, 10, 10) % 60
     assert O._ensure_label_volume(vol) is vol

@@ -49,3 +49,63 @@ def test_hungarian_respects_mask_and_rejects_empty():
     assert res["accuracy"] == 1.0 and res["n_evaluated"] == 2
     with pytest.raises(ValueError, match="empty"):
         sanity.hungarian_match_accuracy(pred, true, np.zeros(4, bool))
+
+
+# ---------------------------------------------------------------------------
+# NCV colour skipping (--skip-ncv-color by default)
+# ---------------------------------------------------------------------------
+
+def _fake_binary(path, advertises_flag: bool = True):
+    """Executable stub whose `run --help` does/does not list --skip-ncv-color."""
+    from pathlib import Path
+
+    path.mkdir(parents=True, exist_ok=True)
+    body = '#!/usr/bin/env bash\nif [ "$1" = run ] && [ "$2" = --help ]; then\n'
+    if advertises_flag:
+        body += ('  echo "  --skip-ncv-color  Skip neighborhood composition '
+                 'color embedding to speed up development runs"\n')
+    else:
+        body += '  echo "Usage: baysor run"\n'
+    body += "  exit 0\nfi\nexit 0\n"
+    bin_path = path / "baysor_stub"
+    bin_path.write_text(body)
+    bin_path.chmod(0o755)
+    return str(bin_path)
+
+
+_SANE_CFG = {"scale_um": 5.0, "min_molecules_per_cell": 10,
+             "prior": "none", "prior_confidence": 0.5, "extra_args": []}
+
+
+def test_supports_skip_ncv_color(tmp_path):
+    yes = _fake_binary(tmp_path / "yes", True)
+    no = _fake_binary(tmp_path / "no", False)
+    assert sanity.supports_skip_ncv_color(yes) is True
+    assert sanity.supports_skip_ncv_color(no) is False
+    # unrunnable binary counts as unsupported (older builds keep colours)
+    assert sanity.supports_skip_ncv_color(str(tmp_path / "missing")) is False
+
+
+def test_build_baysor_command_skip_ncv_color(tmp_path):
+    yes = _fake_binary(tmp_path / "yes", True)
+    mol = tmp_path / "molecules.parquet"
+    out = tmp_path / "out"
+    # default: --skip-ncv-color when the binary supports it
+    cmd = sanity.build_baysor_command(yes, mol, _SANE_CFG, out,
+                                      prior="none", has_z=False)
+    assert cmd.count("--skip-ncv-color") == 1
+    # --ncv-color opt-out (skip_ncv_color=False)
+    cmd = sanity.build_baysor_command(yes, mol, _SANE_CFG, out,
+                                      prior="none", has_z=False,
+                                      skip_ncv_color=False)
+    assert "--skip-ncv-color" not in cmd
+    # binary without the flag: never emitted
+    no = _fake_binary(tmp_path / "no", False)
+    cmd = sanity.build_baysor_command(no, mol, _SANE_CFG, out,
+                                      prior="none", has_z=False)
+    assert "--skip-ncv-color" not in cmd
+    # meta extra_args carries it: exactly one occurrence (CLI11 dedup)
+    cfg = dict(_SANE_CFG, extra_args=["--skip-ncv-color"])
+    cmd = sanity.build_baysor_command(yes, mol, cfg, out,
+                                      prior="none", has_z=False)
+    assert cmd.count("--skip-ncv-color") == 1

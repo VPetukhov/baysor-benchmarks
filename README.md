@@ -122,6 +122,27 @@ PY=.deps/bench/bin/python           # see "Environment" below
 B=/path/to/baysor                   # explicit build of the Baysor sources
 ```
 
+**NCV colours are skipped by default.** Every benchmark command line the
+harness builds (`run.py`/`bench.sh`, `fetch/sanity_run.sh`,
+`fetch/other.py smoke`, `simulate/sanity.py`, the cellAdmix validation
+scripts) passes `--skip-ncv-color` to Baysor when the binary supports it:
+the neighbourhood composition colours are never compared, hashed or read
+by any metric, yet cost 58–76 % of instructions on panels below 1,000 genes
+(`$BAYSOR_BENCH_DATA/profiling/reports/`). Opt out with `--ncv-color`
+(`run.py`, `bench.sh`, `fetch/other.py smoke`, `simulate/sanity.py`) or
+`NCV_COLOR=1` (shell scripts); the effective choice is recorded per
+replicate in `run.json` (`skip_ncv_color`). Comparisons ignore colours
+entirely — `--expect identical` hashes the normalized assignment table — so
+runs with and without colours are comparable; metrics and thresholds are
+unchanged. One caveat from the preserved binary's layout sensitivity (see
+the harness README "Determinism findings"): on a few datasets
+(`xenium_pancreas_377_quick`, `xenium_breast_rep1_stroma_quick`,
+`xenium_mouse_brain_ff_quick`) the flag's presence alone changes the
+1-thread segmentation, so `--expect identical` against a *colour-created*
+baseline only holds on flag-stable datasets (verified: `sim_circles_*`,
+`strec_dense_s2_disjoint`, `iss_mouse_hippocampus_quick`); recreate
+baselines under the new default or opt the step out with `ncv_color: true`.
+
 ### The suites (`datasets/suites.yaml`)
 
 Two committed suites (schema in [`harness/suites.py`](harness/suites.py),
