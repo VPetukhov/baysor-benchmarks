@@ -409,7 +409,7 @@ def run_audit(args) -> dict:
                 ca_audit_mod.CellAdmixAudit.__init__).parameters:
             raise SystemExit(
                 "--fixed-pairs requires the min_pool_markers gate "
-                "(patch 0004); re-run benchmarks/celladmix/install.sh to "
+                "(patch 0004); re-run celladmix/install.sh to "
                 "upgrade the installed cellAdmix bindings")
         audit_kwargs["min_pool_markers"] = MIN_POOL_MARKERS_FIXED
     audit = fit.audit_admixture(**audit_kwargs)

@@ -1,4 +1,4 @@
-"""Tests for the shared download helper (benchmarks/fetch/download.py).
+"""Tests for the shared download helper (fetch/download.py).
 
 The ``http_server`` fixture (tests/conftest.py) serves files with Range
 support and scripted failure responses (429/5xx with Retry-After), so
@@ -7,7 +7,7 @@ the network.
 
 Run from the repository root:
 
-    .deps/bench/bin/python -m pytest benchmarks/fetch/tests
+    .deps/bench/bin/python -m pytest fetch/tests
 """
 
 from __future__ import annotations

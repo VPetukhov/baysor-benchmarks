@@ -1,6 +1,6 @@
 """Trivial simulated datasets with exact ground truth.
 
-Seven scenarios (see ``benchmarks/datasets/sim.yaml`` for the instances):
+Seven scenarios (see ``datasets/sim.yaml`` for the instances):
 
 1. ``circles_gaps``    round cells of equal radius on a jittered hex lattice
                        with clear gaps; several cell types, ~1% uniform
@@ -26,7 +26,7 @@ Seven scenarios (see ``benchmarks/datasets/sim.yaml`` for the instances):
                        the prior carry the signal.
 
 Every scenario is a function of explicit parameters plus a seed and returns
-``(molecules_df, meta)`` following ``benchmarks/README.md``.  Molecule counts
+``(molecules_df, meta)`` following ``README.md``.  Molecule counts
 are lognormal in ``[50, 300]`` (per-cell medians vary by scenario); genes are
 multinomial draws from per-type profiles with a few markers per type over a
 shared low-level lognormal background.  The ``prior`` column labels molecules
@@ -34,7 +34,7 @@ within ``r_nucleus`` of the true centre (0 = none).
 
 CLI (one dataset)::
 
-    python benchmarks/simulate/trivial.py circles_gaps \\
+    python simulate/trivial.py circles_gaps \\
         --id sim_circles_gaps_g100 --seed 1201 --n-genes 100 \\
         -o $BAYSOR_BENCH_DATA/sim/sim_circles_gaps_g100
 """
@@ -262,7 +262,7 @@ def _assemble(*, dataset_id: str, tier: str, scenario: str, seed: int,
     meta = common.make_meta(
         id=dataset_id, tier=tier,
         source={
-            "generator": "benchmarks/simulate/trivial.py",
+            "generator": "simulate/trivial.py",
             "scenario": scenario,
             "generator_version": GENERATOR_VERSION,
             "seed": seed,
@@ -282,7 +282,7 @@ def _assemble(*, dataset_id: str, tier: str, scenario: str, seed: int,
         },
         baysor=common.make_baysor(scale_um),
         truth={
-            "generator": "benchmarks/simulate/trivial.py",
+            "generator": "simulate/trivial.py",
             "generator_version": GENERATOR_VERSION,
             "scenario": scenario,
             "seed": seed,
@@ -675,7 +675,7 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(
         description="Generate one trivial simulated dataset "
-                    "(contract: benchmarks/README.md).")
+                    "(contract: README.md).")
     parser.add_argument("scenario", choices=sorted(SCENARIOS))
     parser.add_argument("--id", required=True, help="dataset id (directory name)")
     parser.add_argument("--seed", type=int, required=True)

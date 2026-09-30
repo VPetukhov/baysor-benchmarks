@@ -19,9 +19,8 @@ import compare
 import run as runner
 from fixtures import make_sim_dataset, make_real_dataset, make_run, corrupt
 
-DEFAULT_BIN = ("/home/vpetukhov/Projects/Baysor/.bench-data/binaries/"
-               "baysor-bugfixes-35e8a7e")
-BAYSOR = Path(os.environ.get("BAYSOR_BIN", DEFAULT_BIN))
+DEFAULT_BIN = common.data_root() / "binaries" / "baysor-bugfixes-35e8a7e"
+BAYSOR = Path(os.environ.get("BAYSOR_BIN") or DEFAULT_BIN)
 
 pytestmark = pytest.mark.skipif(
     not BAYSOR.is_file(), reason=f"Baysor binary not available at {BAYSOR}")

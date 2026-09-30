@@ -27,9 +27,9 @@ report is written to ``$BAYSOR_BENCH_DATA/results/simulate/sanity_check.json``
 
 Usage::
 
-    python benchmarks/simulate/sanity.py            # the three default datasets
-    python benchmarks/simulate/sanity.py --ids sim_tiled_same_g100
-    python benchmarks/simulate/sanity.py \\
+    python simulate/sanity.py            # the three default datasets
+    python simulate/sanity.py --ids sim_tiled_same_g100
+    python simulate/sanity.py \\
         --ids strec_sparse_s1_disjoint_noprior sim_circles_gaps_g100_noprior \\
               strec_dense_s2_merfish_noprior \\
         --report $BAYSOR_BENCH_DATA/results/simulate/sanity_check_noprior.json
@@ -53,7 +53,7 @@ if str(HERE) not in sys.path:
 
 import common  # noqa: E402
 
-DEFAULT_BINARY = "/home/vpetukhov/Projects/Baysor/.bench-data/binaries/baysor-bugfixes-35e8a7e"
+DEFAULT_BINARY = os.environ.get("BAYSOR_BIN")  # explicit only: --binary/BAYSOR_BIN
 DEFAULT_IDS = [
     "sim_circles_gaps_g100",           # trivial
     "strec_sparse_s2_disjoint",        # sparse st-recoverability
@@ -249,12 +249,16 @@ def run_dataset(dataset_id: str, binary: str, run_root: Path) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--binary", default=DEFAULT_BINARY)
+    p.add_argument("--binary", default=DEFAULT_BINARY,
+                   help="Baysor binary to run (required, or set BAYSOR_BIN)")
     p.add_argument("--ids", nargs="+", default=DEFAULT_IDS)
     p.add_argument("--run-root", default=None,
                    help="default: $BAYSOR_BENCH_DATA/runs/bench-sim-sanity")
     p.add_argument("--report", default=str(REPORT))
     args = p.parse_args(argv)
+    if not args.binary:
+        p.error("an explicit Baysor binary is required: --binary PATH or "
+                "environment BAYSOR_BIN")
 
     run_root = (Path(args.run_root) if args.run_root
                 else common.data_root() / "runs" / "bench-sim-sanity")

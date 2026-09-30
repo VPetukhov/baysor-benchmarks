@@ -20,13 +20,13 @@ The dataset contract (files, `meta.json`, tiers) is defined in
 ```bash
 export BAYSOR_BENCH_DATA=/path/to/.bench-data   # shared suite data root
 PY=.deps/bench/bin/python                       # suite Python env
-$PY benchmarks/fetch/xenium.py verify           # HEAD-check URLs + verify recorded hashes
-$PY benchmarks/fetch/xenium.py fetch            # stream needed zip members to cache
-$PY benchmarks/fetch/xenium.py pick --write     # only needed if a crop.bbox_um is null
-$PY benchmarks/fetch/xenium.py build            # write real/<id>/ dataset dirs (+ output hashes)
-$PY benchmarks/fetch/xenium.py record-hashes    # refresh output hashes without rebuilding
-$PY benchmarks/fetch/xenium.py report           # inventory table
-$PY -m pytest benchmarks/fetch/tests            # unit tests
+$PY fetch/xenium.py verify           # HEAD-check URLs + verify recorded hashes
+$PY fetch/xenium.py fetch            # stream needed zip members to cache
+$PY fetch/xenium.py pick --write     # only needed if a crop.bbox_um is null
+$PY fetch/xenium.py build            # write real/<id>/ dataset dirs (+ output hashes)
+$PY fetch/xenium.py record-hashes    # refresh output hashes without rebuilding
+$PY fetch/xenium.py report           # inventory table
+$PY -m pytest fetch/tests            # unit tests
 ```
 
 `build` groups datasets by source bundle and reads each `transcripts.parquet`
@@ -158,7 +158,7 @@ seek arbitrarily; the 1325x2450 Rep1 frame is 6.5 MB.
 * `scale_um` = 1.5 × √(median vendor `nucleus_area` / π) over the cells whose
   centroid is in the crop; the exact method string is stored in
   `meta.baysor.scale_um_method`.
-* Sanity runs: `benchmarks/fetch/sanity_run.sh <dataset_id>` (6 threads,
+* Sanity runs: `fetch/sanity_run.sh <dataset_id>` (6 threads,
   `/usr/bin/time -v`, outputs in `$BAYSOR_BENCH_DATA/runs/sanity_realx/<id>/`).
   The command line is assembled from `meta.json` exactly like the harness
   does it (config, `extra_args`, scale, prior column/image/none, prior

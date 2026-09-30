@@ -1,4 +1,4 @@
-"""Unit tests for benchmarks/simulate/common.py."""
+"""Unit tests for simulate/common.py."""
 import numpy as np
 import pandas as pd
 import pytest

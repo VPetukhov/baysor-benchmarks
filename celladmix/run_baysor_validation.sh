@@ -6,14 +6,14 @@
 # min_molecules_per_cell, prior=none, extra_args). The binary defaults to all
 # cores; OMP_NUM_THREADS caps it per the suite rules.
 #
-# Environment overrides: BAYSOR_BIN, BENCH_PYTHON, BAYSOR_BENCH_DATA, THREADS.
+# Environment overrides: BAYSOR_BIN (required), BENCH_PYTHON, BAYSOR_BENCH_DATA, THREADS.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BAYSOR_MAIN=${BAYSOR_MAIN:-/home/vpetukhov/Projects/Baysor}
-DATA=${BAYSOR_BENCH_DATA:-$BAYSOR_MAIN/.bench-data}
-PY=${BENCH_PYTHON:-$BAYSOR_MAIN/.deps/bench/bin/python}
-BAYSOR_BIN=${BAYSOR_BIN:-/home/vpetukhov/Projects/Baysor/.bench-data/binaries/baysor-bugfixes-35e8a7e}
+REPO="$(cd "$ROOT/.." && pwd)"
+DATA=${BAYSOR_BENCH_DATA:-$REPO/.bench-data}
+PY=${BENCH_PYTHON:-$REPO/.deps/bench/bin/python}
+BAYSOR_BIN=${BAYSOR_BIN:?set BAYSOR_BIN to the Baysor binary to run}
 DS=$DATA/cache/celladmix/datasets/pancreas_crop_quick
 WORK=${WORK:-$DATA/cache/celladmix/work/validation}
 THREADS=${THREADS:-6}

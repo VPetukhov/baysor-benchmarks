@@ -23,8 +23,8 @@ TIERS = ("quick", "full", "all")
 
 
 def repo_root() -> Path:
-    """Repository root (parent of ``benchmarks/``)."""
-    return Path(__file__).resolve().parents[2]
+    """Root of this benchmarks repository."""
+    return Path(__file__).resolve().parents[1]
 
 
 def data_root(cli_value: Optional[str] = None) -> Path:
@@ -37,6 +37,21 @@ def data_root(cli_value: Optional[str] = None) -> Path:
     if env:
         return Path(env).expanduser().resolve()
     return repo_root() / ".bench-data"
+
+
+def baysor_config_path(ref: str, repo: Optional[Path] = None) -> Path:
+    """Resolve a Baysor config reference from dataset specs/``meta.json``.
+
+    Specs reference Baysor's shipped configs as ``configs/<name>.toml``;
+    this repository vendors its own byte-identical copies under
+    ``baysor-configs/`` (see README, "Relation to Baysor"), so a change of
+    Baysor's shipped configs never silently changes benchmark runs.
+    """
+    repo = repo or repo_root()
+    parts = Path(ref).parts
+    if parts and parts[0] == "configs":
+        return repo / "baysor-configs" / Path(*parts[1:])
+    return repo / ref
 
 
 def baselines_root(cli_value: Optional[str] = None) -> Path:

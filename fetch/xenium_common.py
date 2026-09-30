@@ -8,7 +8,7 @@ The module contains the non-CLI parts of the pipeline:
   quality filtering while iterating row groups,
 * deterministic crop-box selection on a molecule/cell density histogram,
 * vendor ``cell_vendor``/``prior`` column construction per the dataset
-  contract in ``benchmarks/README.md``,
+  contract in ``README.md``,
 * cropping of vendor boundary parquet files and OME-TIFF focus images,
 * ``meta.json`` construction and the inventory report.
 
@@ -35,8 +35,8 @@ import download  # noqa: E402  (shared helper, same directory)
 # Paths and manifest
 # ---------------------------------------------------------------------------
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_MANIFEST = REPO_ROOT / "benchmarks" / "datasets" / "real_xenium.yaml"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_MANIFEST = REPO_ROOT / "datasets" / "real_xenium.yaml"
 
 #: feature-name prefixes that mark control probes / blank codewords and are
 #: dropped when the bundle has no ``is_gene``/``codeword_category`` column.
@@ -457,7 +457,7 @@ def pick_bbox(
     ``stroma_range`` with high tissue coverage).
 
     ``criteria`` carries the explicit crop-selection criteria documented in
-    ``benchmarks/fetch/README.md`` (applied to *new* crops only):
+    ``fetch/README.md`` (applied to *new* crops only):
 
     * ``min_clusters``: at least this many distinct vendor clusters must be
       present in the box; needs ``cluster_hists`` - one cells histogram per
@@ -1038,8 +1038,8 @@ def dataset_readme(meta: dict, extra_lines: Sequence[str] = ()) -> str:
         "Regenerate with:",
         "",
         "```bash",
-        "python benchmarks/fetch/xenium.py fetch " + meta["id"],
-        "python benchmarks/fetch/xenium.py build " + meta["id"],
+        "python fetch/xenium.py fetch " + meta["id"],
+        "python fetch/xenium.py build " + meta["id"],
         "```",
         "",
     ]

@@ -10,15 +10,18 @@ the build.
 * commit: `7d3fe7ae70c61d2b9e57469d38d9a88fcf6ac14d`
 * clone location: `$BAYSOR_BENCH_DATA/cache/celladmix/src`
 
-The clone is patched with three committed patches (applied by `install.sh`,
-idempotently):
+The clone is patched with four patches before the build. They are **not
+committed**: they live outside git under `$CELLADMIX_PATCHES` (default
+`$BAYSOR_BENCH_DATA/celladmix/patches/`), and `install.sh` applies them
+idempotently from there. Patches 0002 and 0003 are also proposed upstream
+in [kharchenkolab/cellAdmix-core#2](https://github.com/kharchenkolab/cellAdmix-core/issues/2).
 
 | patch | why |
 |---|---|
-| `patches/0001-bind-tabular-store.patch` | The stock Python bindings only expose `build_xenium_store` (`celladmix.dataset.CellAdmix.ensure_store` raises `NotImplementedError` for other formats), while the C++ core has a full tabular store builder (`build_tabular_input_store`). The patch adds `_core.build_tabular_store(...)` — ~50 lines mirroring the Xenium binding — so contract-format molecule tables work through the normal `CellAdmix` lifecycle. |
-| `patches/0002-keepalive-tabular-parquet-reader.patch` | **Upstream bug**: `make_tabular_stream_source()` (src/input_store.cpp) creates the parquet reader as a local `std::unique_ptr` and returns a record-batch reader derived from it; the `FileReader` is destroyed on return while Arrow's async record-batch pipeline still references it. Every parquet tabular store build then segfaults in `parquet::ParquetFileReader::metadata()` on an Arrow IO thread (reproduced with a pure-C++ repro outside Python; CSV inputs and the Xenium path are unaffected). The patch keeps the reader alive alongside the record-batch reader. Worth reporting upstream. |
-| `patches/0003-tests-include-algorithm.patch` | `tests/test_bridge.cpp` misses `#include <algorithm>`; gcc 15 rejects it. Only needed to build the C++ test suite. |
-| `patches/0004-min-pool-markers-gate.patch` | Makes `CellAdmixAudit`'s `len(pool) < 3` marker-pool gate a `min_pool_markers` keyword (default 3, upstream behaviour). The gate is segmentation-dependent: on the full pancreas crop a rare type with 3 marker genes loses one to a top-expression flip under mild degradation and *all* its pairs vanish from the audit table. `audit.py --fixed-pairs` passes `min_pool_markers=1` so baseline pairs stay measurable (see README, "Fixed pair set"); detected-only runs are unaffected. |
+| `0001-bind-tabular-store.patch` | The stock Python bindings only expose `build_xenium_store` (`celladmix.dataset.CellAdmix.ensure_store` raises `NotImplementedError` for other formats), while the C++ core has a full tabular store builder (`build_tabular_input_store`). The patch adds `_core.build_tabular_store(...)` — ~50 lines mirroring the Xenium binding — so contract-format molecule tables work through the normal `CellAdmix` lifecycle. |
+| `0002-keepalive-tabular-parquet-reader.patch` | **Upstream bug**: `make_tabular_stream_source()` (src/input_store.cpp) creates the parquet reader as a local `std::unique_ptr` and returns a record-batch reader derived from it; the `FileReader` is destroyed on return while Arrow's async record-batch pipeline still references it. Every parquet tabular store build then segfaults in `parquet::ParquetFileReader::metadata()` on an Arrow IO thread (reproduced with a pure-C++ repro outside Python; CSV inputs and the Xenium path are unaffected). The patch keeps the reader alive alongside the record-batch reader. Worth reporting upstream. |
+| `0003-tests-include-algorithm.patch` | `tests/test_bridge.cpp` misses `#include <algorithm>`; gcc 15 rejects it. Only needed to build the C++ test suite. |
+| `0004-min-pool-markers-gate.patch` | Makes `CellAdmixAudit`'s `len(pool) < 3` marker-pool gate a `min_pool_markers` keyword (default 3, upstream behaviour). The gate is segmentation-dependent: on the full pancreas crop a rare type with 3 marker genes loses one to a top-expression flip under mild degradation and *all* its pairs vanish from the audit table. `audit.py --fixed-pairs` passes `min_pool_markers=1` so baseline pairs stay measurable (see README, "Fixed pair set"); detected-only runs are unaffected. |
 
 ## System dependencies
 
@@ -31,27 +34,30 @@ OpenJPEG is installed into a dedicated local prefix so the shared env is not
 modified:
 
 ```bash
-export MAMBA_ROOT_PREFIX=/home/vpetukhov/Projects/Baysor/.deps/mamba
-micromamba create -y -p /home/vpetukhov/Projects/Baysor/.deps/celladmix-build \
+DEPS=${BENCH_DEPS:-<repo>/.deps}            # dependency prefix (see install.sh)
+export MAMBA_ROOT_PREFIX=$DEPS/mamba
+micromamba create -y -p "$DEPS/celladmix-build" \
   -c conda-forge openjpeg
 ```
 
 Python build requirements go into the shared bench env (also listed in
-`benchmarks/environment.yml`):
+`environment.yml`):
 
 ```bash
-/home/vpetukhov/Projects/Baysor/.deps/bench/bin/pip install scikit-build-core pybind11
+"$DEPS/bench/bin/pip" install scikit-build-core pybind11
 ```
 
 ## Clone, patch, build
 
 ```bash
+export BAYSOR_BENCH_DATA=${BAYSOR_BENCH_DATA:-<repo>/.bench-data}
+export CELLADMIX_PATCHES=${CELLADMIX_PATCHES:-$BAYSOR_BENCH_DATA/celladmix/patches}
 git clone https://github.com/kharchenkolab/cellAdmix-core \
   "$BAYSOR_BENCH_DATA/cache/celladmix/src"
 git -C "$BAYSOR_BENCH_DATA/cache/celladmix/src" checkout 7d3fe7ae70c61d2b9e57469d38d9a88fcf6ac14d
-for p in patches/*.patch; do git -C "$BAYSOR_BENCH_DATA/cache/celladmix/src" apply "$p"; done
+for p in "$CELLADMIX_PATCHES"/*.patch; do git -C "$BAYSOR_BENCH_DATA/cache/celladmix/src" apply "$p"; done
 
-DEPS=/home/vpetukhov/Projects/Baysor/.deps
+DEPS=${BENCH_DEPS:-<repo>/.deps}
 SRC=$BAYSOR_BENCH_DATA/cache/celladmix/src
 export PATH=$DEPS/env/bin:$PATH \
        CC=$DEPS/env/bin/x86_64-conda-linux-gnu-cc \

@@ -19,17 +19,17 @@
 #   ./validate_harness.sh --all
 #
 # Environment:
-#   BENCH_PYTHON       bench env python   (default $BAYSOR_MAIN/.deps/bench/bin/python)
-#   BAYSOR_BENCH_DATA  data root          (default $BAYSOR_MAIN/.bench-data)
-#   BAYSOR_BIN         Baysor binary for the --baysor-sd phase
+#   BENCH_PYTHON       bench env python   (default <repo>/.deps/bench/bin/python)
+#   BAYSOR_BENCH_DATA  data root          (default <repo>/.bench-data)
+#   BAYSOR_BIN         Baysor binary, required for the --baysor-sd phase
 #   THREADS=6 SEED=1 NPOOL_CANDIDATES="20 40 60 80"
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BAYSOR_MAIN=${BAYSOR_MAIN:-/home/vpetukhov/Projects/Baysor}
-PY=${BENCH_PYTHON:-$BAYSOR_MAIN/.deps/bench/bin/python}
-DATA=${BAYSOR_BENCH_DATA:-$BAYSOR_MAIN/.bench-data}
-BAYSOR_BIN=${BAYSOR_BIN:-/home/vpetukhov/Projects/Baysor/.bench-data/binaries/baysor-bugfixes-35e8a7e}
+REPO="$(cd "$ROOT/.." && pwd)"
+PY=${BENCH_PYTHON:-$REPO/.deps/bench/bin/python}
+DATA=${BAYSOR_BENCH_DATA:-$REPO/.bench-data}
+BAYSOR_BIN=${BAYSOR_BIN:-}
 THREADS=${THREADS:-6}
 SEED=${SEED:-1}
 NPOOL_CANDIDATES=${NPOOL_CANDIDATES:-"20 40 60 80"}
@@ -226,6 +226,8 @@ validate_pancreas() {
 }
 
 baysor_sd() {
+  [[ -n "$BAYSOR_BIN" && -x "$BAYSOR_BIN" ]] || {
+    echo "error: set BAYSOR_BIN to an executable Baysor binary" >&2; exit 2; }
   local ds_id=${SD_DATASET:-xenium_lung_cancer_quick}
   local base=${SD_BASELINE:-a2-admx-$(echo "$ds_id" | tr 'A-Z' 'a-z' | cut -c1-24)}
   local common=(--baysor "$BAYSOR_BIN" --datasets "$ds_id" --threads "$THREADS")

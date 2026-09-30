@@ -2,7 +2,7 @@
 
 Run from the repository root:
 
-    .deps/bench/bin/python -m pytest benchmarks/fetch/tests
+    .deps/bench/bin/python -m pytest fetch/tests
 """
 
 from __future__ import annotations

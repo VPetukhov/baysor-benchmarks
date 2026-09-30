@@ -1,8 +1,8 @@
 """Optional integration with the cellAdmix admixture audit (BENCH-CELLADMIX).
 
-The audit wrapper lives in ``benchmarks/celladmix/audit.py`` and is invoked as::
+The audit wrapper lives in ``celladmix/audit.py`` and is invoked as::
 
-    python benchmarks/celladmix/audit.py --molecules <parquet> \
+    python celladmix/audit.py --molecules <parquet> \
         --assignment <parquet> --out <json> [--image ...] [--threads N] \
         [--celltypes <parquet>] [--fixed-pairs <json>]
 
@@ -38,14 +38,14 @@ STATUS_UNAVAILABLE = "unavailable"
 
 def audit_script_path(repo: Optional[Path] = None) -> Path:
     if repo is None:
-        repo = Path(__file__).resolve().parents[2]
-    return repo / "benchmarks" / "celladmix" / "audit.py"
+        repo = Path(__file__).resolve().parents[1]
+    return repo / "celladmix" / "audit.py"
 
 
 def transfer_script_path(repo: Optional[Path] = None) -> Path:
     if repo is None:
-        repo = Path(__file__).resolve().parents[2]
-    return repo / "benchmarks" / "celladmix" / "transfer.py"
+        repo = Path(__file__).resolve().parents[1]
+    return repo / "celladmix" / "transfer.py"
 
 
 def audit_available(repo: Optional[Path] = None) -> bool:
@@ -87,7 +87,7 @@ def normalize_audit(result: dict) -> dict:
     if not isinstance(result, dict) or "metrics" not in result \
             or "counts" not in result:
         raise ValueError("audit JSON lacks the metrics/counts blocks "
-                         "(is benchmarks/celladmix/audit.py current?)")
+                         "(is celladmix/audit.py current?)")
     metrics = result.get("metrics") or {}
     counts = result.get("counts") or {}
     params = result.get("parameters") or {}

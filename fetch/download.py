@@ -45,7 +45,7 @@ Example (manifest-driven fetcher)::
 
 CLI::
 
-    python benchmarks/fetch/download.py <url> <dst> [--expected-sha256 HEX]
+    python fetch/download.py <url> <dst> [--expected-sha256 HEX]
 """
 
 from __future__ import annotations

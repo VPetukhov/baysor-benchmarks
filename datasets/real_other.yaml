@@ -1,15 +1,16 @@
 # BENCH-REALO manifest: real benchmark datasets from non-Xenium imaging
 # platforms (ISS, osmFISH, STARmap, MERFISH, CosMx).  Consumed by
-# benchmarks/fetch/other.py:
+# fetch/other.py:
 #
-#   python benchmarks/fetch/other.py build     # download sources, write
-#                                             # $BAYSOR_BENCH_DATA/real/<id>/
-#   python benchmarks/fetch/other.py smoke     # run Release Baysor on quick crops
-#   python benchmarks/fetch/other.py report    # stats table
+#   python fetch/other.py build --only <id>    # download + write one dataset
+#                                              #   to $BAYSOR_BENCH_DATA/real/<id>/
+#   python fetch/other.py smoke --binary PATH  # run a Baysor binary on quick
+#                                              #   crops (or set BAYSOR_BIN)
+#   python fetch/other.py report    # stats table
 #
 # Availability, pixel-size derivations and download sizes for every candidate
 # (including the ones that were *not* obtainable) are inventoried in
-# benchmarks/datasets/real_other_inventory.md.
+# datasets/real_other_inventory.md.
 #
 # `crop.target_molecules`/`cap` drive the deterministic densest-window search
 # (seeded; the resulting bounding box is recorded in each meta.json).

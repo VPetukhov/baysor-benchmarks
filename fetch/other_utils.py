@@ -12,7 +12,7 @@ Contains the non-trivial machinery used by the real-dataset builders:
 * dataset-stat helpers (panel size / density classes per the contract).
 
 Everything that is pure logic takes explicit inputs and is unit-tested in
-``benchmarks/fetch/tests/test_other.py``.
+``fetch/tests/test_other.py``.
 """
 
 from __future__ import annotations
@@ -41,8 +41,18 @@ USER_AGENT = (
 # ---------------------------------------------------------------------------
 
 def repo_root() -> Path:
-    """Root of the Baysor checkout (benchmarks/ is a direct child)."""
-    return Path(__file__).resolve().parents[2]
+    """Root of this benchmarks repository."""
+    return Path(__file__).resolve().parents[1]
+
+
+def baysor_config_path(ref: str) -> Path:
+    """Resolve a Baysor config reference (``configs/<name>.toml``) to the
+    vendored copy under ``baysor-configs/`` (see README, "Relation to
+    Baysor")."""
+    parts = Path(ref).parts
+    if parts and parts[0] == "configs":
+        return repo_root() / "baysor-configs" / Path(*parts[1:])
+    return repo_root() / ref
 
 
 def bench_data_root() -> Path:

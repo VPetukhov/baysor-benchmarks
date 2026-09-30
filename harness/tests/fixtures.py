@@ -1,6 +1,6 @@
 """Contract-conformant fixture datasets and synthetic run helpers for tests.
 
-Everything here follows ``benchmarks/README.md``: ``molecules.parquet`` sorted
+Everything here follows ``README.md``: ``molecules.parquet`` sorted
 by (y, x) plus a ``meta.json`` with tier, baysor parameters and truth.
 """
 from __future__ import annotations

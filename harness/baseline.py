@@ -377,7 +377,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     s.add_argument("--data-root", default=None)
     s.add_argument("--manifest", default=None,
                    help="suite manifest path (default "
-                        "<repo>/benchmarks/datasets/suites.yaml)")
+                        "<repo>/datasets/suites.yaml)")
 
     args = ap.parse_args(argv)
     baselines_dir = Path(args.baselines_dir) \

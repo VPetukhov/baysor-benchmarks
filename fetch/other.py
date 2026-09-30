@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """BENCH-REALO: build cropped real benchmark datasets from non-Xenium platforms.
 
-Reads ``benchmarks/datasets/real_other.yaml`` and materialises one directory
+Reads ``datasets/real_other.yaml`` and materialises one directory
 per dataset under ``$BAYSOR_BENCH_DATA/real/<id>/`` following the dataset
-contract in ``benchmarks/README.md``:
+contract in ``README.md``:
 
     molecules.parquet   sorted by (y, x), coordinates in um, blanks removed
     meta.json           provenance, stats, difficulty classes, Baysor params
@@ -19,7 +19,7 @@ Sub-commands:
     report   print a markdown table with per-dataset stats
 
 Sources (all downloadable without login; see the inventory in
-``benchmarks/datasets/real_other_inventory.md``):
+``datasets/real_other_inventory.md``):
 
     ISS       pklab.med.harvard.edu (example files; fetched via headless
               Firefox because the host challenges non-browser clients) +
@@ -129,7 +129,7 @@ DRYAD_MEMBERS = {
 # ---------------------------------------------------------------------------
 
 def load_manifest(path: Path | None = None) -> dict:
-    path = path or (U.repo_root() / "benchmarks" / "datasets" / "real_other.yaml")
+    path = path or (U.repo_root() / "datasets" / "real_other.yaml")
     with open(path) as fh:
         manifest = yaml.safe_load(fh)
     ids = [d["id"] for d in manifest["datasets"]]
@@ -255,7 +255,7 @@ def write_dataset_readme(spec: dict, meta: dict, lines: Sequence[str]) -> None:
         "## Rebuild",
         "",
         "```bash",
-        f"python benchmarks/fetch/other.py build --only {spec['id']}",
+        f"python fetch/other.py build --only {spec['id']}",
         "```",
         "",
     ]
@@ -1342,7 +1342,7 @@ def build_baysor_command(spec: dict, ds: Path, binary: Path, out_dir: Path,
                          extra_args: Sequence[str] | None = None) -> list[str]:
     meta = json.loads((ds / "meta.json").read_text())
     b = meta["baysor"]
-    cfg = U.repo_root() / b["config"]
+    cfg = U.baysor_config_path(b["config"])
     time_file.parent.mkdir(parents=True, exist_ok=True)
     out_dir.parent.mkdir(parents=True, exist_ok=True)
     args = b.get("extra_args", []) if extra_args is None else list(extra_args)
@@ -1540,8 +1540,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     s.add_argument("--timeout", type=float, default=1800.0,
                    help="wall-clock cap per run in seconds (default 1800 = 30 min)")
     s.add_argument("--binary", type=Path,
-                   default=Path("/home/vpetukhov/Projects/Baysor/.bench-data/binaries/"
-                                "baysor-bugfixes-35e8a7e"))
+                   default=(Path(os.environ["BAYSOR_BIN"])
+                            if os.environ.get("BAYSOR_BIN") else None),
+                   help="Baysor binary to run (or set BAYSOR_BIN)")
     s.add_argument("--force", action="store_true")
     r = sub.add_parser("report", help="print per-dataset stats as markdown")
     r.add_argument("--manifest", type=Path, default=None)
@@ -1565,6 +1566,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"   -> {out} in {time.time() - t0:.1f}s")
         return 0
     if args.cmd == "smoke":
+        if args.binary is None:
+            ap.error("smoke requires an explicit Baysor binary: "
+                     "--binary PATH or environment BAYSOR_BIN")
         out = smoke(manifest, args.binary.resolve(), timeout_s=args.timeout,
                     force=args.force)
         print(f"wrote {out}")

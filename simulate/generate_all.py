@@ -1,4 +1,4 @@
-"""Regenerate every simulated dataset listed in ``benchmarks/datasets/sim.yaml``.
+"""Regenerate every simulated dataset listed in ``datasets/sim.yaml``.
 
 Deterministic: each dataset is rebuilt from its manifest entry (generator,
 scenario, parameters, seed) and written to ``$BAYSOR_BENCH_DATA/sim/<id>/``.
@@ -21,12 +21,12 @@ regeneration against those hashes (not only against each other), and
 
 Usage::
 
-    python benchmarks/simulate/generate_all.py                 # everything
-    python benchmarks/simulate/generate_all.py --list          # show the manifest
-    python benchmarks/simulate/generate_all.py --only sim_circles_gaps_g100
-    python benchmarks/simulate/generate_all.py --verify sim_circles_gaps_g100
-    python benchmarks/simulate/generate_all.py --verify-all    # vs manifest hashes
-    python benchmarks/simulate/generate_all.py --update-hashes # record hashes
+    python simulate/generate_all.py                 # everything
+    python simulate/generate_all.py --list          # show the manifest
+    python simulate/generate_all.py --only sim_circles_gaps_g100
+    python simulate/generate_all.py --verify sim_circles_gaps_g100
+    python simulate/generate_all.py --verify-all    # vs manifest hashes
+    python simulate/generate_all.py --update-hashes # record hashes
 """
 from __future__ import annotations
 

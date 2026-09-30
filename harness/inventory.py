@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Generate ``benchmarks/DATASETS.md`` — the inventory of every dataset.
+"""Generate ``DATASETS.md`` — the inventory of every dataset.
 
 The inventory is a table of all datasets under ``$BAYSOR_BENCH_DATA``
 (``sim/`` and ``real/``), grouped by kind and then by platform (real) or
 generator (sim), plus a density x gene-panel coverage matrix per kind.
 
-Columns (see the dataset contract in ``benchmarks/README.md``):
+Columns (see the dataset contract in ``README.md``):
 
 * id, kind, tier, platform/generator, tissue or scenario;
 * genes, molecules, area (mm2), cells/mm2;
@@ -22,7 +22,7 @@ Columns (see the dataset contract in ``benchmarks/README.md``):
 
 Usage::
 
-    inventory.py                     # (re)write benchmarks/DATASETS.md
+    inventory.py                     # (re)write DATASETS.md
     inventory.py --out /tmp/x.md     # write elsewhere
     inventory.py --check             # exit 1 if the file is stale
 """
@@ -273,7 +273,7 @@ def render(rows: list[dict], root: Path) -> str:
         "dataset contract in [`README.md`](README.md); regenerate with",
         "",
         "```bash",
-        "BAYSOR_BENCH_DATA=... .deps/bench/bin/python benchmarks/harness/inventory.py",
+        "BAYSOR_BENCH_DATA=... .deps/bench/bin/python harness/inventory.py",
         "```",
         "",
         f"{len(rows)} datasets ({n_quick} quick, {n_full} full): "
@@ -369,14 +369,14 @@ def main(argv: Optional[list[str]] = None) -> int:
                     help="resources CSV for the resource columns "
                          f"(default <data-root>/{DEFAULT_RESOURCES})")
     ap.add_argument("--out", default=None,
-                    help="output path (default <repo>/benchmarks/DATASETS.md)")
+                    help="output path (default <repo>/DATASETS.md)")
     ap.add_argument("--check", action="store_true",
                     help="do not write; exit 1 if the file is out of date")
     args = ap.parse_args(argv)
 
     repo = Path(args.repo).resolve() if args.repo else common.repo_root()
     root = common.data_root(args.data_root)
-    out = Path(args.out) if args.out else repo / "benchmarks" / "DATASETS.md"
+    out = Path(args.out) if args.out else repo / "DATASETS.md"
     resources_csv = Path(args.resources) if args.resources \
         else root / DEFAULT_RESOURCES
 

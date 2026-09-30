@@ -105,16 +105,16 @@ Machine-readable version: `$BAYSOR_BENCH_DATA/baselines/real_other_smoke.json`.
 ## Regeneration
 
 ```bash
-export BAYSOR_BENCH_DATA=/home/vpetukhov/Projects/Baysor/.bench-data   # or <repo>/.bench-data
+export BAYSOR_BENCH_DATA=<repo>/.bench-data   # the default; or point at an existing data dir
 
 # one-time: the browser fetcher used for Incapsula/WAF-walled hosts
 .deps/bench/bin/pip install playwright && .deps/bench/bin/python -m playwright install firefox
 
-python benchmarks/fetch/other.py build        # downloads sources (idempotent) + writes real/<id>/
-python benchmarks/fetch/other.py build --only <id>    # single dataset
-python benchmarks/fetch/other.py smoke --timeout 1800 # wall/RAM of every quick crop
-python benchmarks/fetch/other.py report       # per-dataset stats table
-.deps/bench/bin/python -m pytest benchmarks/fetch/tests
+python fetch/other.py build        # downloads sources (idempotent) + writes real/<id>/
+python fetch/other.py build --only <id>    # single dataset
+python fetch/other.py smoke --binary /path/to/baysor --timeout 1800  # wall/RAM of every quick crop
+python fetch/other.py report       # per-dataset stats table
+.deps/bench/bin/python -m pytest fetch/tests
 ```
 
 All crop windows are chosen by a seeded densest-window search

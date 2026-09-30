@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
-# Build and install the cellAdmix Python bindings (pinned commit + committed
-# patches) into the Baysor bench environment. Idempotent; safe to re-run.
+# Build and install the cellAdmix Python bindings (pinned commit + patches
+# from $CELLADMIX_PATCHES, outside git) into the bench environment.
+# Idempotent; safe to re-run.
 #
 # Exact commands and rationale: INSTALL.md
 #
 # Environment overrides:
-#   BAYSOR_MAIN        root that owns .deps/   (default /home/vpetukhov/Projects/Baysor)
-#   BAYSOR_BENCH_DATA  benchmark data root     (default $BAYSOR_MAIN/.bench-data)
+#   BENCH_REPO         benchmarks repo root  (default: this script's parent)
+#   BENCH_DEPS         dependency prefix     (default $BENCH_REPO/.deps)
+#   BAYSOR_BENCH_DATA  benchmark data root   (default $BENCH_REPO/.bench-data)
+#   CELLADMIX_PATCHES  patch directory       (default $BAYSOR_BENCH_DATA/celladmix/patches)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BAYSOR_MAIN=${BAYSOR_MAIN:-/home/vpetukhov/Projects/Baysor}
-DEPS=$BAYSOR_MAIN/.deps
-DATA=${BAYSOR_BENCH_DATA:-$BAYSOR_MAIN/.bench-data}
+BENCH_REPO=${BENCH_REPO:-$(cd "$ROOT/.." && pwd)}
+DEPS=${BENCH_DEPS:-$BENCH_REPO/.deps}
+DATA=${BAYSOR_BENCH_DATA:-$BENCH_REPO/.bench-data}
+PATCHES=${CELLADMIX_PATCHES:-$DATA/celladmix/patches}
 PY=$DEPS/bench/bin/python
 ENV=$DEPS/env
 MICROMAMBA=$DEPS/bin/micromamba
@@ -46,8 +50,17 @@ if [[ "$head" != "$COMMIT" ]]; then
 fi
 echo "=== cellAdmix-core at $(git -C "$SRC" rev-parse --short HEAD)"
 
-# --- 3. committed patches ---------------------------------------------------
-for patch in "$ROOT"/patches/*.patch; do
+# --- 3. patches from outside git (see INSTALL.md) --------------------------
+# The four patches are not committed; they live under $CELLADMIX_PATCHES
+# (default <data-dir>/celladmix/patches). Patches 0002 + 0003 are also
+# proposed upstream in kharchenkolab/cellAdmix-core#2.
+if ! compgen -G "$PATCHES/*.patch" > /dev/null; then
+  echo "no *.patch files in $PATCHES" >&2
+  echo "set CELLADMIX_PATCHES to the directory holding the four patches" >&2
+  echo "(see celladmix/INSTALL.md)" >&2
+  exit 1
+fi
+for patch in "$PATCHES"/*.patch; do
   if git -C "$SRC" apply --check "$patch" 2>/dev/null; then
     echo "=== applying $(basename "$patch")"
     git -C "$SRC" apply "$patch"

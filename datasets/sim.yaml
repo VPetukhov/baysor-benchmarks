@@ -1,7 +1,7 @@
-# Simulated datasets of the Baysor benchmark suite (contract: benchmarks/README.md).
+# Simulated datasets of the Baysor benchmark suite (contract: README.md).
 #
 # Regenerate everything with:
-#   BAYSOR_BENCH_DATA=... .deps/bench/bin/python benchmarks/simulate/generate_all.py
+#   BAYSOR_BENCH_DATA=... .deps/bench/bin/python simulate/generate_all.py
 #   ... generate_all.py --update-hashes     # (re)record the sha256 block below
 # Regenerate one dataset and verify byte-identity:
 #   ... generate_all.py --verify <id>       # disk + regeneration vs this manifest
@@ -41,11 +41,11 @@ version: 1
 
 generators:
   trivial:
-    entry: benchmarks/simulate/trivial.py
+    entry: simulate/trivial.py
     generator_version: 1
     note: in-repo scenarios with exact ground truth (no displacement noise)
   strec:
-    entry: benchmarks/simulate/strec.py
+    entry: simulate/strec.py
     generator_version: 1
     external:
       name: st-recoverability
@@ -61,7 +61,7 @@ generators:
       prime5k: Xenium_Prime_Ovarian_Cancer_FFPE_XRrun (10x release 3.0.0),
         cell_feature_matrix.h5 fetched from outs.zip via remotezip
   noprior:
-    entry: benchmarks/simulate/generate_all.py (derive)
+    entry: simulate/generate_all.py (derive)
     generator_version: 1
     note: "derived from another entry (base): same molecules, no prior
       column, meta.baysor.prior = none"

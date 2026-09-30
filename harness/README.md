@@ -25,24 +25,24 @@ which now also lists `pytest`). All commands below use it as `$PY`.
 export BAYSOR_BENCH_DATA=/path/to/.bench-data    # shared data root
 
 # 1. run the quick tier, 3 replicates (noise floor), 6 threads
-$PY benchmarks/harness/run.py --baysor /path/to/baysor \
+$PY harness/run.py --baysor /path/to/baysor \
     --datasets quick --run-id myrun --replicates 3
 
 # 2. freeze it as a baseline (everything lands in $BAYSOR_BENCH_DATA/baselines/)
-$PY benchmarks/harness/baseline.py create --run-id myrun --name mybase
+$PY harness/baseline.py create --run-id myrun --name mybase
 
 # 3. later: check an unchanged algorithm
-$PY benchmarks/harness/compare.py --run-id otherrun --baseline mybase --expect same
+$PY harness/compare.py --run-id otherrun --baseline mybase --expect same
 
 # refactor gate (default when --expect is omitted): bitwise-identical at 1 thread
-$PY benchmarks/harness/run.py --baysor /path/to/baysor --datasets quick \
+$PY harness/run.py --baysor /path/to/baysor --datasets quick \
     --run-id refactor1 --replicates 1 --threads 1
-$PY benchmarks/harness/baseline.py create --run-id refactor1 --name mybase-1t \
+$PY harness/baseline.py create --run-id refactor1 --name mybase-1t \
     --allow-incomplete
-$PY benchmarks/harness/compare.py --run-id refactor2 --baseline mybase-1t
+$PY harness/compare.py --run-id refactor2 --baseline mybase-1t
 
 # or everything in one command
-benchmarks/harness/bench.sh --baysor /path/to/baysor --baseline mybase \
+harness/bench.sh --baysor /path/to/baysor --baseline mybase \
     --expect same --replicates 3
 ```
 
@@ -76,7 +76,7 @@ the 1-thread bitwise group by design, `--expect identical` skips the
 6-thread groups), `--baseline` overrides every group's baseline.
 
 ```bash
-benchmarks/harness/bench.sh --baysor $B --preset regular --baseline mybase --celltypes-from mybase
+harness/bench.sh --baysor $B --preset regular --baseline mybase --celltypes-from mybase
 ```
 
 ## Suites (`../datasets/suites.yaml`)
@@ -84,11 +84,11 @@ benchmarks/harness/bench.sh --baysor $B --preset regular --baseline mybase --cel
 `suites.py` turns the manifest into run steps and run-id groups:
 
 ```bash
-$PY benchmarks/harness/suites.py --list
-$PY benchmarks/harness/suites.py --suite regular        # plan + estimates
-$PY benchmarks/harness/suites.py --suite regular --check-baselines
-$PY benchmarks/harness/run.py --suite regular --run-id X --dry-run
-$PY benchmarks/harness/compare.py --run-id X --suite regular
+$PY harness/suites.py --list
+$PY harness/suites.py --suite regular        # plan + estimates
+$PY harness/suites.py --suite regular --check-baselines
+$PY harness/run.py --suite regular --run-id X --dry-run
+$PY harness/compare.py --run-id X --suite regular
 ```
 
 * each step = one `run.py` invocation: `datasets` (tier/ids/globs),
@@ -129,8 +129,8 @@ records the same CPU fields (`cpu_user_s`, `cpu_sys_s`, `cpu_percent`)
 in `run.json` for future runs.
 
 ```bash
-$PY benchmarks/harness/resources.py           # regenerate the CSV
-$PY benchmarks/harness/resources.py --check   # exit 1 when stale
+$PY harness/resources.py           # regenerate the CSV
+$PY harness/resources.py --check   # exit 1 when stale
 ```
 
 ## Dataset selection (`--datasets`)
@@ -330,7 +330,7 @@ information only.
 
 ### Real admixture (cellAdmix)
 
-Optional and pluggable: when `benchmarks/celladmix/audit.py` (BENCH-CELLADMIX)
+Optional and pluggable: when `celladmix/audit.py` (BENCH-CELLADMIX)
 exists, every real replicate is audited as
 `python .../audit.py --molecules <parquet> --assignment <parquet> --out <json>
 --threads <N> [--image ...] [--celltypes <parquet>] [--fixed-pairs <json>]
@@ -370,9 +370,9 @@ harness datasets").
 ## Baselines and the noise floor
 
 ```bash
-$PY benchmarks/harness/baseline.py create --run-id R --name NAME [--force]
+$PY harness/baseline.py create --run-id R --name NAME [--force]
     [--allow-incomplete | --identical]
-$PY benchmarks/harness/baseline.py list
+$PY harness/baseline.py list
 ```
 
 * metric JSONs are copied to `$BAYSOR_BENCH_DATA/baselines/NAME/<dataset>.json`
@@ -618,12 +618,12 @@ with the current definitions, baselines regenerated from `harness-val1` /
 Reproduce:
 
 ```bash
-$PY benchmarks/harness/recompute_metrics.py --run harness-val1 --run harness-val2 \
+$PY harness/recompute_metrics.py --run harness-val1 --run harness-val2 \
     --run harness-val3 --run harness-val4 --run rev-same-sim --run rev-same-real \
     --run rev-scale09-sim --run rev-scale09-real
-$PY benchmarks/harness/baseline.py create --run-id harness-val1 --name harness-dev --force
-$PY benchmarks/harness/baseline.py create --run-id harness-val3 --name harness-real-dev --force
-$PY benchmarks/harness/compare.py --run-id rev-same-sim --baseline harness-dev --expect same
+$PY harness/baseline.py create --run-id harness-val1 --name harness-dev --force
+$PY harness/baseline.py create --run-id harness-val3 --name harness-real-dev --force
+$PY harness/compare.py --run-id rev-same-sim --baseline harness-dev --expect same
 ```
 
 Calibrated tolerances (`k = 3`; pooled SD from `harness-dev` /
@@ -661,11 +661,11 @@ False-alarm budgets: ~0.009 over 16 sim gates, ~0.008 over 9 real gates.
 
 ## Validation performed
 
-All on this machine with the Release binary at
-`/home/vpetukhov/Projects/Baysor/.bench-data/binaries/baysor-bugfixes-35e8a7e`,
-data root `/home/vpetukhov/Projects/Baysor/.bench-data`:
+All on the development machine with the Release binary
+`$BAYSOR_BENCH_DATA/binaries/baysor-bugfixes-35e8a7e`,
+data root `$BAYSOR_BENCH_DATA`:
 
-1. **Unit/fixture tests** (94): `cd benchmarks/harness/tests && $PY -m pytest -q` —
+1. **Unit/fixture tests** (94): `cd harness/tests && $PY -m pytest -q` —
    hand-made metric cases (perfect, one split, one merge, all noise,
    permuted labels, majority-noise rule, 50-molecule noise rule,
    assigned-only ARI, one-to-one vs many-to-one, st-recoverability
@@ -688,8 +688,8 @@ data root `/home/vpetukhov/Projects/Baysor/.bench-data`:
 ## Tests
 
 ```bash
-cd benchmarks/harness/tests
-/home/vpetukhov/Projects/Baysor/.deps/bench/bin/python -m pytest -q
+cd harness/tests
+../../.deps/bench/bin/python -m pytest -q
 ```
 
 Tests generate their own contract-conformant fixtures in tmp dirs

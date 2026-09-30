@@ -1,7 +1,7 @@
 """Tests for the cellAdmix integration adapter.
 
 The success path is a *contract* test: it runs the real
-``benchmarks/celladmix/audit.py`` on a small synthetic fixture and checks that
+``celladmix/audit.py`` on a small synthetic fixture and checks that
 the adapter reads the audit's actual JSON layout (``metrics.
 total_admixture_rate``, ``pairs_top``, counts) — the mocked test that used to
 live here hid a layout mismatch. The audit needs the cellAdmix bindings
@@ -21,8 +21,8 @@ import common
 from fixtures import make_audit_fixture
 
 REPO = common.repo_root()
-AUDIT_SCRIPT = REPO / "benchmarks" / "celladmix" / "audit.py"
-TRANSFER_SCRIPT = REPO / "benchmarks" / "celladmix" / "transfer.py"
+AUDIT_SCRIPT = REPO / "celladmix" / "audit.py"
+TRANSFER_SCRIPT = REPO / "celladmix" / "transfer.py"
 
 # audit parameters that make the default-sized fixture (48 cells, 48 genes)
 # scorable: the defaults (>= 200 target cells per type) target real crops.
@@ -48,7 +48,7 @@ HAS_CELLADMIX = _bindings_installed()
 
 
 def _make_repo(tmp_path, script_body):
-    script = tmp_path / "benchmarks" / "celladmix" / "audit.py"
+    script = tmp_path / "celladmix" / "audit.py"
     script.parent.mkdir(parents=True)
     script.write_text(script_body)
     return tmp_path

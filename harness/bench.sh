@@ -50,7 +50,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="$(cd "$HERE/../.." && pwd)"
+REPO="$(cd "$HERE/.." && pwd)"
 
 BAYSOR="${BAYSOR_BIN:-}"
 BASELINE=""
@@ -115,7 +115,7 @@ done
 
 if [[ -n "$SUITE" && $EXPL_CONFIG -eq 1 ]]; then
   echo "error: --datasets/--threads/--replicates/--timeout are defined per" >&2
-  echo "       step by the suite manifest (benchmarks/datasets/suites.yaml)" >&2
+  echo "       step by the suite manifest (datasets/suites.yaml)" >&2
   exit 2
 fi
 

@@ -90,8 +90,9 @@ def test_build_command_config_relative_to_repo_root(tmp_path):
     ds = common.load_dataset(ds)
     cmd = runner.build_command(Path("/bin/baysor"), ds, tmp_path / "seg",
                                FAKE_PROBE, REPO)
-    assert cmd[cmd.index("-c") + 1] == str(REPO / "configs" / "xenium.toml")
-    assert (REPO / "configs" / "xenium.toml").is_file()
+    # specs say "configs/..."; the repo vendors the file as baysor-configs/...
+    assert cmd[cmd.index("-c") + 1] == str(REPO / "baysor-configs" / "xenium.toml")
+    assert (REPO / "baysor-configs" / "xenium.toml").is_file()
 
 
 def test_build_command_extra_args_and_no_output_style(tmp_path):

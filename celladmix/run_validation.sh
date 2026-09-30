@@ -8,16 +8,16 @@
 #   * the crop built by fetch_pancreas.py
 #
 # Environment overrides:
-#   BENCH_PYTHON  python of the bench env   (default /home/vpetukhov/Projects/Baysor/.deps/bench/bin/python)
-#   BAYSOR_BENCH_DATA                      (default /home/vpetukhov/Projects/Baysor/.bench-data)
+#   BENCH_PYTHON  python of the bench env   (default <repo>/.deps/bench/bin/python)
+#   BAYSOR_BENCH_DATA                      (default <repo>/.bench-data)
 #   THREADS       threads per audit run     (default 6)
 #   SEED          baseline seed             (default 1)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BAYSOR_MAIN=${BAYSOR_MAIN:-/home/vpetukhov/Projects/Baysor}
-DATA=${BAYSOR_BENCH_DATA:-$BAYSOR_MAIN/.bench-data}
-PY=${BENCH_PYTHON:-$BAYSOR_MAIN/.deps/bench/bin/python}
+REPO="$(cd "$ROOT/.." && pwd)"
+DATA=${BAYSOR_BENCH_DATA:-$REPO/.bench-data}
+PY=${BENCH_PYTHON:-$REPO/.deps/bench/bin/python}
 DS=$DATA/cache/celladmix/datasets/pancreas_crop_quick
 WORK=${WORK:-$DATA/cache/celladmix/work/validation}
 THREADS=${THREADS:-6}

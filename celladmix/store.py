@@ -3,8 +3,9 @@
 The stock Python bindings only build *Xenium* input stores
 (``celladmix.dataset.CellAdmix.ensure_store`` raises for other formats), while
 the C++ core has a full tabular store builder. The wheel we install (see
-``install.sh``) exposes it as ``celladmix._core.build_tabular_store`` through a
-small committed patch; :class:`TabularCellAdmix` wires that binding into the
+``install.sh``) exposes it as ``celladmix._core.build_tabular_store`` through
+a small patch (applied by ``install.sh`` from ``$CELLADMIX_PATCHES``, outside
+git); :class:`TabularCellAdmix` wires that binding into the
 normal ``CellAdmix`` lifecycle so ``fit()`` and ``fit.audit_admixture()`` work
 unchanged on benchmark molecule tables.
 

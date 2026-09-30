@@ -17,7 +17,7 @@ total_admixture_rate = Σ_pairs A_{S→T} / M          (over detected pairs)
 
 | file | what |
 |---|---|
-| `install.sh`, `INSTALL.md` | build/install of the pinned cellAdmix Python bindings (+4 committed patches) |
+| `install.sh`, `INSTALL.md` | build/install of the pinned cellAdmix Python bindings (+4 patches from `$CELLADMIX_PATCHES`, outside git) |
 | `fetch_pancreas.py` | download the 10x Xenium pancreas FFPE members (remotezip, ~155 MB) and cut contract-format crops |
 | `audit.py` | **the CLI**: cellAdmix audit → `result.json` |
 | `degrade.py` | deliberate degradation (border reassignment, dilation) → assignment parquet |
@@ -35,8 +35,7 @@ total_admixture_rate = Σ_pairs A_{S→T} / M          (over detected pairs)
 
 ```bash
 ./install.sh                       # build cellAdmix bindings (see INSTALL.md)
-export BAYSOR_BENCH_DATA=/home/vpetukhov/Projects/Baysor/.bench-data
-PY=.deps/bench/bin/python          # bench env python
+PY=../.deps/bench/bin/python       # bench env python (repo root: .deps/bench)
 
 # 1. dataset (cached after the first run)
 python fetch_pancreas.py --crop-id pancreas_crop_quick --side-um 625 --max-molecules 150000
@@ -335,7 +334,7 @@ The `results/` files live in `$BAYSOR_BENCH_DATA/results/celladmix/`
 
 1. **Upstream segfault**: parquet *tabular* store builds crash
    (use-after-free of the parquet reader; pure-C++ repro). Fixed by
-   `patches/0002-keepalive-tabular-parquet-reader.patch` — worth reporting to
+   `$CELLADMIX_PATCHES/0002-keepalive-tabular-parquet-reader.patch` — worth reporting to
    kharchenkolab/cellAdmix-core.
 2. **Racy parallel clustering**: see "Cell typing" above; worked around by
    single-threaded clustering.

@@ -1,8 +1,8 @@
-"""Tests for benchmarks/fetch/other.py + other_utils.py (BENCH-REALO).
+"""Tests for fetch/other.py + other_utils.py (BENCH-REALO).
 
 Run with:
 
-    .deps/bench/bin/python -m pytest benchmarks/fetch/tests
+    .deps/bench/bin/python -m pytest fetch/tests
 """
 
 from __future__ import annotations
@@ -154,7 +154,7 @@ def test_manifest_is_valid():
         assert "source" in d and "url" in d["source"]
         assert "baysor" in d
         b = d["baysor"]
-        assert (U.repo_root() / b["config"]).exists(), b["config"]
+        assert U.baysor_config_path(b["config"]).exists(), b["config"]
         assert isinstance(b["scale_um"], (int, float))
         assert b["scale_std"] is not None
         assert b["min_molecules_per_cell"] > 0

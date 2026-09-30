@@ -85,7 +85,7 @@ REAL_INFO = ("molecule_ari", "assigned_agreement", "assigned_fraction_candidate"
 
 # --- floors for tolerance = max(k * SD_pooled, floor) ------------------------
 # Calibrated with recompute_metrics.py on harness-val{1..4} and
-# rev-{same,scale09}-{sim,real}; see benchmarks/harness/README.md.
+# rev-{same,scale09}-{sim,real}; see harness/README.md.
 SIM_FLOORS = {
     "accuracy_1to1": 0.01,
     "ari_assigned": 0.02,
@@ -978,10 +978,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                          "group's manifest mode")
     ap.add_argument("--suite", default=None, metavar="NAME",
                     help="compare every group of a suite from the manifest "
-                         "(benchmarks/datasets/suites.yaml): one "
+                         "(datasets/suites.yaml): one "
                          "run/baseline/expect comparison per run-id group")
     ap.add_argument("--manifest", default=None,
-                    help="suite manifest path (default <repo>/benchmarks/"
+                    help="suite manifest path (default <repo>/"
                          "datasets/suites.yaml)")
     ap.add_argument("--data-root", default=None)
     ap.add_argument("--baselines-dir", default=None,

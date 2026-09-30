@@ -7,14 +7,16 @@
 # prior (`column` -> :prior, `image:<path>` -> the label TIFF, `none` ->
 # no positional), prior confidence and min-molecules-per-cell.
 #
-# Usage: benchmarks/fetch/sanity_run.sh <dataset_id>
-# Env:   BAYSOR_BIN, BAYSOR_BENCH_DATA, RUN_ID (default sanity_realx),
-#        N_THREADS (default 6, the shared-machine limit for this suite).
+# Usage: fetch/sanity_run.sh <dataset_id>
+# Env:   BAYSOR_BIN (required: Baysor binary), BAYSOR_BENCH_DATA, RUN_ID
+#        (default sanity_realx), N_THREADS (default 6, the shared-machine
+#        limit for this suite).
 set -euo pipefail
 
-BAYSOR_BIN=${BAYSOR_BIN:-/home/vpetukhov/Projects/Baysor/.bench-data/binaries/baysor-bugfixes-35e8a7e}
-BAYSOR_BENCH_DATA=${BAYSOR_BENCH_DATA:-/home/vpetukhov/Projects/Baysor/.bench-data}
-BENCH_PY=${BENCH_PY:-/home/vpetukhov/Projects/Baysor/.deps/bench/bin/python}
+repo_root=$(cd "$(dirname "$0")/.." && pwd)
+BAYSOR_BIN=${BAYSOR_BIN:?set BAYSOR_BIN to the Baysor binary to run}
+BAYSOR_BENCH_DATA=${BAYSOR_BENCH_DATA:-$repo_root/.bench-data}
+BENCH_PY=${BENCH_PY:-$repo_root/.deps/bench/bin/python}
 RUN_ID=${RUN_ID:-sanity_realx}
 N_THREADS=${N_THREADS:-6}
 export N_THREADS
@@ -26,18 +28,22 @@ test -f "$ds/molecules.parquet" || { echo "missing $ds/molecules.parquet" >&2; e
 test -f "$ds/meta.json" || { echo "missing $ds/meta.json" >&2; exit 1; }
 mkdir -p "$out"
 
-repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
 
 # options and prior positional, derived from meta.json (one per line)
-mapfile -t baysor_opts < <("$BENCH_PY" - "$ds" <<'PYEOF'
+mapfile -t baysor_opts < <("$BENCH_PY" - "$ds" "$repo_root" <<'PYEOF'
 import json, sys
 from pathlib import Path
 
+repo = Path(sys.argv[2])
 cfg = json.load(open(Path(sys.argv[1]) / "meta.json")).get("baysor", {})
 opts = []
 if cfg.get("config"):
-    opts += ["-c", str(cfg["config"])]
+    rel = Path(cfg["config"])
+    if rel.parts and rel.parts[0] == "configs":
+        # vendored Baysor configs live under baysor-configs/ (see README)
+        rel = Path("baysor-configs", *rel.parts[1:])
+    opts += ["-c", str(repo / rel)]
 if cfg.get("scale_um") is not None:
     opts += ["--scale", str(cfg["scale_um"])]
 if cfg.get("scale_std") is not None:

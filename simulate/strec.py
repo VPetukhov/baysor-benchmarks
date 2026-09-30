@@ -50,7 +50,7 @@ Realistic expression models:
 
 CLI (one dataset)::
 
-    python benchmarks/simulate/strec.py --id strec_dense_s2_merfish \\
+    python simulate/strec.py --id strec_dense_s2_merfish \\
         --packing 13625 --sigma 2.0 --model merfish --seed 910002 \\
         -o $BAYSOR_BENCH_DATA/sim/strec_dense_s2_merfish
 """
@@ -574,7 +574,7 @@ def generate(*, dataset_id: str, tier: str, packing: float, sigma: float,
     meta = common.make_meta(
         id=dataset_id, tier=tier,
         source={
-            "generator": "benchmarks/simulate/strec.py",
+            "generator": "simulate/strec.py",
             "generator_version": GENERATOR_VERSION,
             "seed": seed,
             "note": "st-recoverability generator imported from a pinned clone; "
@@ -592,7 +592,7 @@ def generate(*, dataset_id: str, tier: str, packing: float, sigma: float,
         difficulty=difficulty,
         baysor=common.make_baysor(field.r_mean_um),
         truth={
-            "generator": "benchmarks/simulate/strec.py",
+            "generator": "simulate/strec.py",
             "generator_version": GENERATOR_VERSION,
             "external": {
                 "name": "st-recoverability",
@@ -620,7 +620,7 @@ def generate(*, dataset_id: str, tier: str, packing: float, sigma: float,
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         description="Generate one st-recoverability simulated dataset "
-                    "(contract: benchmarks/README.md).")
+                    "(contract: README.md).")
     p.add_argument("--id", required=True, help="dataset id (directory name)")
     p.add_argument("--packing", type=float, required=True,
                    help="cell packing, cells/mm^2 (e.g. 1000, 2575, 6000, 13625)")

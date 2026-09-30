@@ -1,5 +1,5 @@
-# Benchmark suites for the Baysor harness (see benchmarks/harness/suites.py
-# for the schema and benchmarks/README.md -> "How to test a change").
+# Benchmark suites for the Baysor harness (see harness/suites.py
+# for the schema and README.md -> "How to test a change").
 #
 # Every step is one run.py invocation; steps sharing a `group` write into the
 # same runs/<id> folder (one comparison per group in compare.py --suite).

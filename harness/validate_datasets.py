@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Contract validator for every benchmark dataset under ``sim/`` and ``real/``.
 
-Checks the dataset contract defined in ``benchmarks/README.md``:
+Checks the dataset contract defined in ``README.md``:
 
 * **molecules.parquet** — required columns and dtypes, rows sorted by
   (y, x), finite coordinates, no control/blank gene names;
@@ -132,13 +132,13 @@ def cell_density_class(cells_per_mm2: float) -> str:
 
 
 def load_manifest_index(repo: Path) -> dict[str, dict]:
-    """Index every dataset entry of ``benchmarks/datasets/*.yaml`` by id.
+    """Index every dataset entry of ``datasets/*.yaml`` by id.
 
     Returns ``{id: {"group", "path", "entry"}}``.
     """
     idx: dict[str, dict] = {}
     for name in MANIFESTS:
-        path = repo / "benchmarks" / "datasets" / name
+        path = repo / "datasets" / name
         if not path.is_file():
             continue
         with open(path) as fh:
@@ -594,10 +594,10 @@ def _validate_baysor(ds_id: str, ds_dir: Path, repo: Path, kind: Optional[str],
     if config is not None:
         if not isinstance(config, str):
             report.add("error", ds_id, "baysor", f"config must be a path or null: {config!r}")
-        elif not (repo / config).is_file():
+        elif not common.baysor_config_path(config, repo=repo).is_file():
             report.add("error", ds_id, "files",
-                       f"baysor.config '{config}' does not exist relative to the "
-                       "repository root")
+                       f"baysor.config '{config}' does not exist (vendored "
+                       "under baysor-configs/, see README)")
 
 
 def _validate_images(ds_id: str, ds_dir: Path, meta: dict,
@@ -676,7 +676,7 @@ def _validate_manifest(ds_id: str, meta: dict, repo: Path,
     hit = manifests.get(ds_id)
     if hit is None:
         report.add("error", ds_id, "manifest",
-                   "dataset is not listed in any of benchmarks/datasets/*.yaml")
+                   "dataset is not listed in any of datasets/*.yaml")
         return
     entry = hit["entry"]
     group = hit["group"]

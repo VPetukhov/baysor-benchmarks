@@ -1,0 +1,10 @@
+# Local state: data and dependencies are never committed.
+# Fresh setup (or symlink to an existing checkout) is documented in README.md
+# under "Setup":  .bench-data/  and  .deps/
+/.bench-data
+/.deps
+
+# Python caches
+__pycache__/
+.pytest_cache/
+*.pyc

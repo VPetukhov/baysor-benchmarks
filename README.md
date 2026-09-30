@@ -20,17 +20,49 @@ local](#results-and-baselines-are-local)).
 ## Layout
 
 ```
-benchmarks/
-  README.md              this file: layout and the dataset contract
+baysor-benchmarks/
+  README.md              this file: layout, workflow and the dataset contract
   DATASETS.md            generated inventory of every dataset + coverage matrix
+  LICENSE                same license as Baysor (copied from it)
   environment.yml        Python environment for the suite
   datasets/              manifests: one YAML per dataset group (sim, real_xenium,
                          real_other) + suites.yaml (the regular/release suites)
+  baysor-configs/        vendored copies of Baysor's shipped configs
+                         (see "Relation to Baysor")
   simulate/              generators for simulated datasets
   fetch/                 download + crop scripts for real datasets
   harness/               runner, metrics, baseline comparison, reports
   celladmix/             cellAdmix admixture audit on a segmentation
 ```
+
+## Relation to Baysor
+
+This repository is the benchmark suite split out of the [Baysor](https://github.com/VPetukhov/baysor)
+repository (formerly its `benchmarks/` directory; the history was preserved
+with `git filter-repo --subdirectory-filter benchmarks`): <https://github.com/VPetukhov/baysor-benchmarks>.
+It works standalone — nothing in this tree expects a Baysor source checkout:
+
+* **The Baysor binary is always explicit**: every run takes `--baysor` /
+  `--binary` or the `BAYSOR_BIN` environment variable; there is no built-in
+  default binary.
+* **Baysor configs are vendored**: dataset specs (`datasets/*.yaml`) and
+  `meta.json` reference Baysor's shipped configs as `configs/<name>.toml`,
+  and the harness resolves those references to the byte-identical copies in
+  [`baysor-configs/`](baysor-configs/) — copied from Baysor commit
+  `69be9805b8d8854e6c30c4e4068d56197c9dfeff` (`cpp-dev-llm`):
+  `xenium.toml`, `iss.toml`, `osm_fish.toml`, `starmap.toml`,
+  `example_config.toml`. A change of Baysor's shipped configs therefore
+  never silently changes benchmark runs.
+* **cellAdmix patches live outside git**: the four patches needed to build
+  the pinned cellAdmix-core (see [`celladmix/INSTALL.md`](celladmix/INSTALL.md))
+  are applied by `celladmix/install.sh` from `$CELLADMIX_PATCHES` (default
+  `<data dir>/celladmix/patches/`); patches 0002 and 0003 are also proposed
+  upstream in [kharchenkolab/cellAdmix-core#2](https://github.com/kharchenkolab/cellAdmix-core/issues/2).
+* **License**: [`LICENSE`](LICENSE) is copied from Baysor (MIT).
+
+Baysor's own testing docs point back to this repository; keep the two in
+sync only through explicit binary + baseline choices, never through shared
+trees.
 
 Baseline metric JSONs, `resources.csv`, `SUMMARY.md`, run outputs and
 validation reports are **not** in this tree: they live under
@@ -52,8 +84,8 @@ column (membership in [`datasets/suites.yaml`](datasets/suites.yaml)).
 Regenerate it with:
 
 ```bash
-$PY benchmarks/harness/inventory.py            # writes benchmarks/DATASETS.md
-$PY benchmarks/harness/inventory.py --check    # exit 1 when stale
+$PY harness/inventory.py            # writes DATASETS.md
+$PY harness/inventory.py --check    # exit 1 when stale
 ```
 
 Validate the datasets against this contract (columns/dtypes/sort, meta
@@ -61,8 +93,8 @@ fields and enums, stats consistency, image/prior/config references,
 manifest sha256) with:
 
 ```bash
-$PY benchmarks/harness/validate_datasets.py    # exit 1 on metadata errors
-$PY benchmarks/harness/validate_datasets.py --strict   # data findings too
+$PY harness/validate_datasets.py    # exit 1 on metadata errors
+$PY harness/validate_datasets.py --strict   # data findings too
 ```
 
 ## Workflow
@@ -83,12 +115,11 @@ Official baselines of the current algorithm (stored under
 | `$BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e-t1/` | `identical` | quick tier, 1 thread, 1 replicate, no cellAdmix |
 | `$BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e/` | noise floor | quick + full tier, 6 threads, 3 replicates (full tier: see its README), cellAdmix audit with stable typing |
 
-Setup used by every command below:
+Setup used by every command below (from the repository root):
 
 ```bash
-export BAYSOR_BENCH_DATA=/home/vpetukhov/Projects/Baysor/.bench-data
-PY=.deps/bench/bin/python
-B=/path/to/baysor                 # your build of the same sources
+PY=.deps/bench/bin/python           # see "Environment" below
+B=/path/to/baysor                   # explicit build of the Baysor sources
 ```
 
 ### The suites (`datasets/suites.yaml`)
@@ -98,7 +129,7 @@ resolution via `run.py --suite` / `compare.py --suite`). The times are
 estimates from
 `$BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e/resources.csv`
 (measured Baysor wall/CPU × replicates + cellAdmix audit; reproduce with
-`$PY benchmarks/harness/suites.py --suite <name>`):
+`$PY harness/suites.py --suite <name>`):
 
 | suite | steps (compare mode) | coverage | est. wall | est. CPU |
 |---|---|---|---|---|
@@ -132,9 +163,9 @@ Resolve both suites without running Baysor (validates dataset ids,
 baselines, run-ids and prints the estimates):
 
 ```bash
-$PY benchmarks/harness/run.py --suite regular --run-id dry --dry-run
-$PY benchmarks/harness/run.py --suite release --run-id dry --dry-run
-$PY benchmarks/harness/suites.py --suite regular     # plan + estimates only
+$PY harness/run.py --suite regular --run-id dry --dry-run
+$PY harness/run.py --suite release --run-id dry --dry-run
+$PY harness/suites.py --suite regular     # plan + estimates only
 ```
 
 ### Step 0: the C++ unit tests (part of `regular`)
@@ -148,7 +179,7 @@ ctest --test-dir build/tests --output-on-failure
 ### Every change/PR: the `regular` suite (~20 min)
 
 ```bash
-benchmarks/harness/bench.sh --baysor $B --preset regular --run-id reg-1
+harness/bench.sh --baysor $B --preset regular --run-id reg-1
 ```
 
 Runs both steps and compares every group (`exact` → `identical`, `noise`
@@ -180,10 +211,10 @@ The legacy single-step presets `refactor` (1 thr × 1 rep, `identical`) and
 
 ```bash
 # algorithm release: full noise-floor run judged on improvement
-benchmarks/harness/bench.sh --baysor $B --preset release --run-id rel-1 \
+harness/bench.sh --baysor $B --preset release --run-id rel-1 \
     --expect improved
 # unchanged-algorithm release: default (--expect same) + bitwise gate
-benchmarks/harness/bench.sh --baysor $B --preset release --run-id rel-2
+harness/bench.sh --baysor $B --preset release --run-id rel-2
 ```
 
 Everything: all quick and full datasets at 6 threads × 3 replicates with
@@ -199,18 +230,18 @@ replicates, timeouts and estimated time.
 
 ```bash
 # rerun both configurations with the new binary
-$PY benchmarks/harness/run.py --baysor $B --datasets quick --run-id benchbase-b \
+$PY harness/run.py --baysor $B --datasets quick --run-id benchbase-b \
     --replicates 3 --threads 6 --timeout 1800 --skip-existing \
     --celltypes-from bugfixes-35e8a7e --label <new-sha>
-$PY benchmarks/harness/run.py --baysor $B --datasets quick --run-id benchbase-t1 \
+$PY harness/run.py --baysor $B --datasets quick --run-id benchbase-t1 \
     --replicates 1 --threads 1 --timeout 1800 --no-celladmix \
     --skip-existing --label <new-sha>
 # freeze them (adds --allow-incomplete/--identical as needed; see baseline.py)
-$PY benchmarks/harness/baseline.py create --run-id benchbase-b \
+$PY harness/baseline.py create --run-id benchbase-b \
     --name bugfixes-<new-sha> --force
-$PY benchmarks/harness/baseline.py create --run-id benchbase-t1 \
+$PY harness/baseline.py create --run-id benchbase-t1 \
     --name bugfixes-<new-sha>-t1 --force --identical
-$PY benchmarks/harness/baseline_summary.py --baseline bugfixes-<new-sha>
+$PY harness/baseline_summary.py --baseline bugfixes-<new-sha>
 ```
 
 (`--skip-existing` only reuses replicates whose binary sha256, thread
@@ -222,7 +253,7 @@ for the exact official-baseline invocations of this binary.
 
 ## Results and baselines are local
 
-Nothing under `benchmarks/` is a run result: datasets, run outputs, baseline
+Nothing committed to this repository is a run result: datasets, run outputs, baseline
 metric JSONs and validation reports all live under `$BAYSOR_BENCH_DATA`
 (gitignored, never committed — see [Data location](#data-location)):
 
@@ -240,13 +271,12 @@ The harness reads and writes every one of these files there; the
 comparisons work unchanged.
 
 **Recreate a baseline** with the release suite and the preserved official
-binary (kept in the data dir): the 6-thread group freezes as `<name>`, the
-1-thread bitwise group as `<name>-t1`:
+binary (kept in the data dir and passed explicitly): the 6-thread group
+freezes as `<name>`, the 1-thread bitwise group as `<name>-t1`:
 
 ```bash
-export BAYSOR_BENCH_DATA=/home/vpetukhov/Projects/Baysor/.bench-data
-benchmarks/harness/bench.sh --suite release \
-    --baysor "$BAYSOR_BENCH_DATA/binaries/baysor-bugfixes-35e8a7e" \
+harness/bench.sh --suite release \
+    --baysor .bench-data/binaries/baysor-bugfixes-35e8a7e \
     --create-baseline bugfixes-35e8a7e
 ```
 
@@ -354,13 +384,29 @@ add extra columns prefixed with `aux_`.
   reference annotation.
 - `README.md`: provenance notes specific to the dataset.
 
-## Environment
+## Environment and local state
 
-The Python environment used by the whole suite is created by:
+The Python environment used by the whole suite is created from the
+repository root:
 
 ```bash
-micromamba create -p .deps/bench -f benchmarks/environment.yml
+micromamba create -p .deps/bench -f environment.yml
 ```
 
-On the development machine it is already created at
-`/home/vpetukhov/Projects/Baysor/.deps/bench`.
+Two locations in this repository hold local state and are gitignored
+(`.gitignore`); create them fresh or symlink existing ones:
+
+```bash
+# Python env: create from environment.yml (above), or reuse an existing one
+ln -s /path/to/existing/.deps/bench .deps/bench
+
+# Data dir: either symlink an existing data dir (datasets, runs, baselines)
+ln -s /path/to/existing/.bench-data .bench-data
+# ...or leave it absent: fetch/ and simulate/ create <repo>/.bench-data/
+# on first use (fetch downloads the datasets, simulate generates them),
+# and harness/ runs + baselines are written there too.
+```
+
+Everything else (the Baysor binary, micromamba itself, the cellAdmix build
+toolchain) comes in explicitly: `--baysor` / `BAYSOR_BIN`,
+`BENCH_PYTHON`/`BENCH_PY`, and `BENCH_DEPS` for `celladmix/install.sh`.

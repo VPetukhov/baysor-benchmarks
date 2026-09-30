@@ -10,7 +10,7 @@ import resources
 import suites
 
 REPO = common.repo_root()
-MANIFEST = REPO / "benchmarks" / "datasets" / "suites.yaml"
+MANIFEST = REPO / "datasets" / "suites.yaml"
 
 
 def _write_manifest(tmp_path, body: str) -> Path:

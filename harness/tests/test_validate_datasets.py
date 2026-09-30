@@ -358,7 +358,7 @@ def test_cell_density_class_boundaries(d, cls):
 # ---------------------------------------------------------------------------
 
 def _write_repo_manifests(repo: Path, entries: list[dict]) -> None:
-    d = repo / "benchmarks" / "datasets"
+    d = repo / "datasets"
     d.mkdir(parents=True, exist_ok=True)
     (d / "sim.yaml").write_text(yaml.safe_dump({"datasets": entries}))
 
@@ -410,7 +410,7 @@ def test_cli_bad_dataset_spec(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 def _make_repo_with_manifests(repo: Path, entries: list[dict]) -> None:
-    d = repo / "benchmarks" / "datasets"
+    d = repo / "datasets"
     d.mkdir(parents=True, exist_ok=True)
     (d / "real_other.yaml").write_text(yaml.safe_dump({"datasets": entries}))
 
@@ -427,7 +427,7 @@ def test_inventory_collect_and_render(tmp_path: Path):
         {"id": "real_inv_a", "tier": "quick", "platform": "fixture",
          "tissue": "test tissue"},
     ]
-    d = repo / "benchmarks" / "datasets"
+    d = repo / "datasets"
     d.mkdir(parents=True, exist_ok=True)
     (d / "sim.yaml").write_text(yaml.safe_dump({"datasets": entries[:1]}))
     (d / "real_other.yaml").write_text(yaml.safe_dump({"datasets": entries[1:]}))
@@ -467,7 +467,7 @@ def test_inventory_cli_check(tmp_path: Path):
     root = tmp_path / "data"
     repo = tmp_path / "repo"
     _fix_meta(fixtures.make_sim_dataset(root / "sim" / "sim_inv_b"), "sim")
-    d = repo / "benchmarks" / "datasets"
+    d = repo / "datasets"
     d.mkdir(parents=True, exist_ok=True)
     (d / "sim.yaml").write_text(yaml.safe_dump({"datasets": [
         {"id": "sim_inv_b", "tier": "quick", "generator": "trivial",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resolve benchmark suites from the manifest ``benchmarks/datasets/suites.yaml``.
+"""Resolve benchmark suites from the manifest ``datasets/suites.yaml``.
 
 A *suite* is an ordered list of *steps*; every step is one ``run.py``
 invocation (dataset spec, threads, replicates, timeout, cellAdmix audit,
@@ -55,7 +55,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import common                      # noqa: E402
 import resources as resmod         # noqa: E402
 
-DEFAULT_MANIFEST = "benchmarks/datasets/suites.yaml"
+DEFAULT_MANIFEST = "datasets/suites.yaml"
 EXPECTS = ("identical", "same", "improved")
 _RUN_ID_RE = re.compile(r"[A-Za-z0-9._-]+")
 

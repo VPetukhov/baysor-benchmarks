@@ -51,7 +51,7 @@ GRID_STEP_UM = 25.0  # grid step for the dense-window search
 
 
 def default_data_root() -> Path:
-    return Path(os.environ.get("BAYSOR_BENCH_DATA", "")) or Path(__file__).resolve().parents[2] / ".bench-data"
+    return Path(os.environ.get("BAYSOR_BENCH_DATA", "")) or Path(__file__).resolve().parents[1] / ".bench-data"
 
 
 def fetch_members(raw_dir: Path, *, url: str = ZIP_URL, members: tuple[str, ...] = MEMBERS) -> dict[str, Path]:

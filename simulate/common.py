@@ -1,7 +1,7 @@
 """Shared helpers for the simulated datasets of the Baysor benchmark suite.
 
 Everything here is deterministic given a seed and follows the dataset contract
-in ``benchmarks/README.md``: molecules live in ``molecules.parquet`` (sorted by
+in ``README.md``: molecules live in ``molecules.parquet`` (sorted by
 ``(y, x)``), metadata in ``meta.json``.
 
 The module provides:
@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 
 # ---------------------------------------------------------------------------
-# Tier budgets (see benchmarks/README.md)
+# Tier budgets (see README.md)
 # ---------------------------------------------------------------------------
 TIER_BUDGET = {"quick": 150_000, "full": 3_000_000}
 
@@ -36,7 +36,7 @@ def data_root() -> Path:
     env = os.environ.get("BAYSOR_BENCH_DATA")
     if env:
         return Path(env)
-    return Path(__file__).resolve().parents[2] / ".bench-data"
+    return Path(__file__).resolve().parents[1] / ".bench-data"
 
 
 def cache_dir() -> Path:

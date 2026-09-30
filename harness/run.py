@@ -14,7 +14,7 @@ For every selected dataset and replicate this runner
   replicate-vs-replicate agreement, optional cellAdmix audit).
 
 With ``--suite NAME`` the dataset selection and run configuration come from
-the suite manifest (``benchmarks/datasets/suites.yaml``): every step of the
+the suite manifest (``datasets/suites.yaml``): every step of the
 suite runs in order, each group of steps sharing a run root (see
 ``suites.py``). ``--dry-run`` resolves and prints the plan without touching
 the binary.
@@ -134,7 +134,7 @@ def build_command(baysor: Path, ds: common.Dataset, seg_dir: Path,
     if cfg.get("min_molecules_per_cell") is not None:
         add(("-m", "--min-molecules-per-cell"), cfg["min_molecules_per_cell"])
     if cfg.get("config"):
-        cfg_path = repo / str(cfg["config"])
+        cfg_path = common.baysor_config_path(str(cfg["config"]), repo=repo)
         if not cfg_path.is_file():
             raise FileNotFoundError(f"{ds.id}: config {cfg_path} not found")
         add(("-c", "--config"), cfg_path)
@@ -712,14 +712,14 @@ def main(argv: Optional[list[str]] = None) -> int:
                     help="per-replicate timeout in seconds (0 = none; with "
                          "--suite: per step)")
     ap.add_argument("--suite", default=None, metavar="NAME",
-                    help="run a suite from the manifest (benchmarks/datasets/"
+                    help="run a suite from the manifest (datasets/"
                          "suites.yaml, e.g. regular|release): dataset ids, "
                          "threads, replicates, timeouts, audit and metrics "
                          "options come from the manifest")
     ap.add_argument("--step", default=None, metavar="STEP",
                     help="with --suite: run only this named step")
     ap.add_argument("--manifest", default=None,
-                    help="suite manifest path (default <repo>/benchmarks/"
+                    help="suite manifest path (default <repo>/"
                          "datasets/suites.yaml)")
     ap.add_argument("--data-root", default=None,
                     help="data root (default $BAYSOR_BENCH_DATA or <repo>/.bench-data)")

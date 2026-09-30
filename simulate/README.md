@@ -1,8 +1,8 @@
-# `benchmarks/simulate` — simulated datasets with exact ground truth
+# `simulate` — simulated datasets with exact ground truth
 
 Generators for the `sim` dataset group of the Baysor benchmark suite.
-Contract: [`benchmarks/README.md`](../README.md).  Manifest:
-[`benchmarks/datasets/sim.yaml`](../datasets/sim.yaml).
+Contract: [`README.md`](../README.md).  Manifest:
+[`datasets/sim.yaml`](../datasets/sim.yaml).
 
 * `common.py` — shared helpers: hex lattices, Delaunay adjacency + DSATUR
   graph colouring, expression profiles, molecule placement, nucleus prior
@@ -28,7 +28,7 @@ Contract: [`benchmarks/README.md`](../README.md).  Manifest:
   accuracy next to the oracle (reports in `$BAYSOR_BENCH_DATA/results/simulate/`:
   `sanity_check.json`, `sanity_check_noprior.json` — local, never committed).
 * `tests/` — pytest suite, 76 tests
-  (`python -m pytest benchmarks/simulate/tests`).
+  (`python -m pytest simulate/tests`).
 
 ## Datasets (51 total, 5.81 M molecules, ~126 MB parquet)
 
@@ -115,13 +115,13 @@ Notes:
 export BAYSOR_BENCH_DATA=/path/to/bench-data      # default: <repo>/.bench-data
 PY=.deps/bench/bin/python
 
-$PY benchmarks/simulate/generate_all.py                    # all 51 datasets (~90 s)
-$PY benchmarks/simulate/generate_all.py --list             # show the manifest
-$PY benchmarks/simulate/generate_all.py --only sim_circles_gaps_g100
-$PY benchmarks/simulate/generate_all.py --verify <id>      # disk + regeneration
+$PY simulate/generate_all.py                    # all 51 datasets (~90 s)
+$PY simulate/generate_all.py --list             # show the manifest
+$PY simulate/generate_all.py --only sim_circles_gaps_g100
+$PY simulate/generate_all.py --verify <id>      # disk + regeneration
                                                            # vs manifest sha256
-$PY benchmarks/simulate/generate_all.py --verify-all       # every dataset
-$PY benchmarks/simulate/generate_all.py --update-hashes    # record sha256
+$PY simulate/generate_all.py --verify-all       # every dataset
+$PY simulate/generate_all.py --update-hashes    # record sha256
 ```
 
 Every manifest entry carries the expected `sha256` of `molecules.parquet`
@@ -132,12 +132,12 @@ reproduces the committed bytes.
 Single datasets can also be built directly:
 
 ```bash
-$PY benchmarks/simulate/trivial.py circles_gaps --id sim_circles_gaps_g100 \
+$PY simulate/trivial.py circles_gaps --id sim_circles_gaps_g100 \
     --seed 1201 --n-genes 100 -o "$BAYSOR_BENCH_DATA/sim/sim_circles_gaps_g100"
-$PY benchmarks/simulate/strec.py --id strec_dense_s2_merfish \
+$PY simulate/strec.py --id strec_dense_s2_merfish \
     --packing 13625 --sigma 2.0 --model merfish --seed 910009 \
     -o "$BAYSOR_BENCH_DATA/sim/strec_dense_s2_merfish"
-$PY benchmarks/simulate/strec.py --id strec_dense_s2_disjoint_aniso \
+$PY simulate/strec.py --id strec_dense_s2_disjoint_aniso \
     --packing 13625 --sigma 2.0 --model disjoint --seed 910015 --geometry aniso \
     -o "$BAYSOR_BENCH_DATA/sim/strec_dense_s2_disjoint_aniso"
 ```
@@ -227,7 +227,7 @@ All downloads are re-fetchable by the scripts (`ensure_repo`, `ensure_merfish`,
 
 ## Sanity check (BENCH-SIM part C)
 
-`python benchmarks/simulate/sanity.py` runs the release binary on one trivial,
+`python simulate/sanity.py` runs the release binary on one trivial,
 one sparse and one dense st-rec dataset with `meta.baysor` + `:prior`
 (≤ 6 threads), writes run outputs to
 `$BAYSOR_BENCH_DATA/runs/bench-sim-sanity/<id>/` and the report to

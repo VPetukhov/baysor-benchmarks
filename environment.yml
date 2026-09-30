@@ -23,7 +23,7 @@ dependencies:
       - remotezip
       - pyflakes
       # build deps for the cellAdmix Python bindings; the bindings themselves
-      # are installed from the pinned+patched source by benchmarks/celladmix/install.sh
+      # are installed from the pinned+patched source by celladmix/install.sh
       - scikit-build-core
       - pybind11
       - playwright   # headless Firefox fetcher for bot-walled data hosts

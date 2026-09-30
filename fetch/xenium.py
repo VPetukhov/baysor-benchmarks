@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fetch and crop public 10x Xenium datasets for the Baysor benchmark suite.
 
-Subcommands (all read ``benchmarks/datasets/real_xenium.yaml`` by default):
+Subcommands (all read ``datasets/real_xenium.yaml`` by default):
 
 ``verify``
     HEAD-check every source zip URL and compare its size with the manifest,
@@ -32,10 +32,10 @@ Subcommands (all read ``benchmarks/datasets/real_xenium.yaml`` by default):
 
 Example::
 
-    python benchmarks/fetch/xenium.py fetch
-    python benchmarks/fetch/xenium.py pick --write
-    python benchmarks/fetch/xenium.py build
-    python benchmarks/fetch/xenium.py report
+    python fetch/xenium.py fetch
+    python fetch/xenium.py pick --write
+    python fetch/xenium.py build
+    python fetch/xenium.py report
 """
 
 from __future__ import annotations

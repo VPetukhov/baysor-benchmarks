@@ -33,9 +33,9 @@ def test_ensure_repo_pinned():
 
 def test_repo_is_not_vendored():
     """The external code must stay in the cache, never in the repo."""
-    repo_root = common.Path(__file__).resolve().parents[3]
+    repo_root = common.Path(__file__).resolve().parents[2]
     for mod in ("generator.py", "oracle.py"):
-        assert not (repo_root / "benchmarks" / "simulate" / mod).exists()
+        assert not (repo_root / "simulate" / mod).exists()
 
 
 def test_import_modules():
