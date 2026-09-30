@@ -33,6 +33,8 @@ baysor-benchmarks/
   fetch/                 download + crop scripts for real datasets
   harness/               runner, metrics, baseline comparison, reports
   celladmix/             cellAdmix admixture audit on a segmentation
+  profiling/             load-robust CPU/memory profiling suite (see
+                         "Profiling" below)
 ```
 
 ## Relation to Baysor
@@ -104,6 +106,17 @@ running datasets (`run.py`), metric definitions, baselines and the measured
 noise floor (including Baysor's determinism findings), and the
 `--expect same` / `--expect improved` comparison (`compare.py`, one-shot
 `bench.sh`).
+
+## Profiling
+
+Load-robust CPU and memory profiling of `baysor run` lives in
+[`profiling/`](profiling/) — quick and report tiers under Valgrind
+(callgrind/cachegrind/DHAT), a scaling tier with gperftools/heaptrack on
+whole-slide ladders, and a `compare.py` for before/after runs. Start with
+[`profiling/README.md`](profiling/README.md) (tool install into `.deps/`,
+profiling build of Baysor, tiers, output layout). Results go to
+`$BAYSOR_BENCH_DATA/profiling/` (default `<repo>/.bench-data/profiling/`)
+and are never committed.
 
 ## How to test a change
 

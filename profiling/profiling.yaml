@@ -1,0 +1,234 @@
+# Baysor profiling suite: dataset spec + job sets.
+#
+# Datasets are small deterministic spatial crops of the benchmark datasets in
+# $BAYSOR_BENCH_DATA/{sim,real}/<source>/ (see ../DATASETS.md), written by
+# make_crops.py to $BAYSOR_BENCH_DATA/profiling/data/<id>/ (never to git).
+#
+# Crop rule (make_crops.py): an axis-aligned square in x/y centred on the
+# median molecule position of the source, with the smallest side (bisection
+# to 1e-6 of the source extent) that contains >= n_molecules molecules; all
+# z are kept. Rows keep the source order, the Baysor flags come from the
+# source meta.json (baysor section) unchanged, so a profiling crop runs
+# exactly like its source dataset in the benchmark harness.
+#
+# Callgrind runs ~50-100x slower than native, so crops are 10-40k molecules.
+# The `roles` tags say which report question a dataset answers:
+#   genes      gene-panel scaling at ~fixed molecule count
+#   genes_sim  controlled gene scaling: same simulated geometry, 100/1000/5000 genes
+#   molecules  molecule-count scaling at a fixed panel
+#   3d, prior, noprior, louvain, plot  feature coverage
+#   threads    thread series (1, 2, 4, 8, 16)
+# `native_s_hint`: 1-thread native wall seconds measured on the dev host; only
+# used to start the longest Valgrind jobs first.
+
+datasets:
+  # --- real, gene-panel scaling (~20k molecules each) -----------------------
+  - id: osmfish_g35_20k
+    source: osmfish_somatosensory_quick
+    n_molecules: 20000
+    native_s_hint: 18
+    roles: [genes, prior]
+  - id: xenium_pancreas_g377_20k
+    source: xenium_pancreas_377_quick
+    n_molecules: 20000
+    native_s_hint: 21
+    roles: [genes, molecules, prior, threads]
+  - id: cosmx_nsclc_g960_20k
+    source: cosmx_nsclc_lung5_rep1_quick
+    n_molecules: 20000
+    native_s_hint: 23
+    roles: [genes, noprior]
+  - id: xenium_prime5k_20k
+    source: xenium_prime5k_ovarian_quick
+    n_molecules: 20000
+    native_s_hint: 13
+    roles: [genes, prior, threads]
+  - id: cosmx_wtx_20k
+    source: cosmx_wtx_colon_quick
+    n_molecules: 20000
+    native_s_hint: 38
+    roles: [genes, louvain, noprior]
+  - id: cosmx_wtx_5k
+    source: cosmx_wtx_colon_quick
+    n_molecules: 5000
+    native_s_hint: 12
+    roles: [genes, louvain, noprior]
+  # --- molecule scaling on the Xenium pancreas panel --------------------------
+  - id: xenium_pancreas_g377_10k
+    source: xenium_pancreas_377_quick
+    n_molecules: 10000
+    native_s_hint: 11
+    roles: [molecules, prior]
+  - id: xenium_pancreas_g377_40k
+    source: xenium_pancreas_377_quick
+    n_molecules: 40000
+    native_s_hint: 34
+    roles: [molecules, prior]
+  # --- controlled gene scaling: identical simulated geometry ----------------
+  - id: sim_circles_g100_20k
+    source: sim_circles_gaps_g100
+    n_molecules: 20000
+    native_s_hint: 21
+    roles: [genes_sim, prior]
+  - id: sim_circles_g1000_20k
+    source: sim_circles_gaps_g1000
+    n_molecules: 20000
+    native_s_hint: 22
+    roles: [genes_sim, prior]
+  - id: sim_circles_g5000_10k
+    source: sim_circles_gaps_g5000
+    n_molecules: 10000
+    native_s_hint: 58
+    roles: [genes_sim, prior]
+  - id: sim_circles_g5000_20k
+    source: sim_circles_gaps_g5000
+    n_molecules: 20000
+    native_s_hint: 142
+    roles: [genes_sim, prior]
+  # --- 3D ---------------------------------------------------------------------
+  - id: merfish_ileum_3d_20k
+    source: merfish_ileum_quick
+    n_molecules: 20000
+    native_s_hint: 23
+    roles: [3d, noprior]
+
+# Job sets. Every job is one Baysor run of a dataset under one tool:
+#   callgrind  instruction counts (Ir) per phase / function / line; phases are
+#              separated with --dump-before on the phase functions
+#              listed in `phases` below; --separate-threads=yes
+#   cachegrind Valgrind cachegrind --cache-sim=yes: simulated I1/D1/LL misses
+#              per function and line (callgrind --cache-sim=yes is ~5x slower)
+#   dhat       heap profile (peak heap, live-at-peak sites, churn by site)
+#   native     no Valgrind: wall/CPU time, peak RSS (wait4 rusage) and /proc samples,
+#              repeated `reps` times, one at a time (load-sensitive)
+# `plot: true` adds --plot (HTML reports) to the Baysor command.
+suites:
+  quick:
+    description: >-
+      Default set, < 60 min wall on the 16-core shared host (load ~15-20
+      from other users) with at most 8 concurrent heavy processes
+      (7 Valgrind + 1 native lane; the lane's slot goes to Valgrind when it
+      is done). Every 1-thread callgrind job of this suite is also in
+      `report`, so `compare.py` against a report run checks reproducibility.
+    callgrind:
+      - {datasets: [osmfish_g35_20k, xenium_pancreas_g377_10k, xenium_pancreas_g377_20k,
+                    xenium_pancreas_g377_40k, cosmx_nsclc_g960_20k, xenium_prime5k_20k,
+                    sim_circles_g100_20k, sim_circles_g1000_20k, sim_circles_g5000_10k,
+                    merfish_ileum_3d_20k, cosmx_wtx_5k], threads: [1]}
+      - {datasets: [xenium_pancreas_g377_10k], threads: [2, 4, 8, 16]}
+      - {datasets: [xenium_pancreas_g377_10k], threads: [1], plot: true}
+      - {datasets: [xenium_pancreas_g377_10k], threads: [1], tag: rerun}
+    cachegrind:
+      - {datasets: [xenium_pancreas_g377_10k], threads: [1]}
+    dhat:
+      - {datasets: [xenium_pancreas_g377_10k, xenium_pancreas_g377_20k, cosmx_wtx_5k],
+         threads: [1]}
+      - {datasets: [xenium_pancreas_g377_10k], threads: [16]}
+    native:
+      - {datasets: [xenium_pancreas_g377_20k, xenium_prime5k_20k],
+         threads: [1, 2, 4, 8, 16], reps: 3, when: before}
+      - {datasets: [xenium_pancreas_g377_20k], threads: [8], reps: 3,
+         wait_policy: passive, when: before}
+      - {datasets: [osmfish_g35_20k, cosmx_nsclc_g960_20k, cosmx_wtx_5k,
+                    xenium_pancreas_g377_10k, xenium_pancreas_g377_40k,
+                    sim_circles_g100_20k, sim_circles_g1000_20k,
+                    sim_circles_g5000_10k, merfish_ileum_3d_20k], threads: [1], reps: 3}
+
+  report:
+    description: >-
+      Extended set behind the first full report (~95 min wall at load ~17):
+      the thread series, --plot and the re-run on the 20k Xenium crop, the
+      20k whole-transcriptome crop, DHAT on most datasets.
+    callgrind:
+      - {datasets: [osmfish_g35_20k, xenium_pancreas_g377_20k, cosmx_nsclc_g960_20k,
+                    xenium_prime5k_20k, cosmx_wtx_20k, xenium_pancreas_g377_10k,
+                    xenium_pancreas_g377_40k, sim_circles_g100_20k,
+                    sim_circles_g1000_20k, sim_circles_g5000_10k,
+                    merfish_ileum_3d_20k], threads: [1]}
+      - {datasets: [xenium_pancreas_g377_20k], threads: [2, 4, 8, 16]}
+      - {datasets: [xenium_pancreas_g377_20k], threads: [1], plot: true}
+      - {datasets: [xenium_pancreas_g377_20k], threads: [1], tag: rerun}
+    cachegrind:
+      - {datasets: [xenium_pancreas_g377_10k], threads: [1]}
+    dhat:
+      - {datasets: [osmfish_g35_20k, xenium_pancreas_g377_20k, cosmx_nsclc_g960_20k,
+                    xenium_prime5k_20k, cosmx_wtx_20k, xenium_pancreas_g377_10k,
+                    xenium_pancreas_g377_40k], threads: [1]}
+      - {datasets: [xenium_pancreas_g377_20k], threads: [16]}
+    native:
+      # `when: before` runs alone before the Valgrind pool (thread series:
+      # least disturbed wall times); the rest share one lane with the pool.
+      - {datasets: [xenium_pancreas_g377_20k, xenium_prime5k_20k],
+         threads: [1, 2, 4, 8, 16], reps: 3, when: before}
+      - {datasets: [xenium_pancreas_g377_20k], threads: [8], reps: 3,
+         wait_policy: passive, when: before}
+      - {datasets: [osmfish_g35_20k, cosmx_nsclc_g960_20k, cosmx_wtx_20k,
+                    xenium_pancreas_g377_10k, xenium_pancreas_g377_40k,
+                    sim_circles_g100_20k, sim_circles_g1000_20k,
+                    sim_circles_g5000_10k, sim_circles_g5000_20k,
+                    merfish_ileum_3d_20k], threads: [1], reps: 3}
+
+# Phase functions (callgrind --dump-before patterns, matched
+# against demangled names). A phase is the time between entering and leaving
+# the outermost active phase function; code between phases (in cmd_run and
+# its segmentation lambda: cell stats, count matrix assembly, ...) is
+# reported as `glue`. Everything before the first phase (CLI/config parsing,
+# static init) is `startup`, everything after the last one `shutdown`.
+phases:
+  - {name: loading,          pattern: "baysor::load_molecules(*"}
+  - {name: prior,            pattern: "baysor::load_prior_segmentation(*"}
+  - {name: confidence,       pattern: "baysor::append_confidence(*"}
+  - {name: confidence,       pattern: "baysor::estimate_confidence_details(*"}
+  - {name: molecule_graph,   pattern: "baysor::build_molecule_graph(*"}
+  - {name: mol_clustering,   pattern: "baysor::cluster_molecules(*"}
+  - {name: bmm_init,         pattern: "baysor::BmmData<*> baysor::initialize_bmm_data<*"}
+  - {name: bmm_iterations,   pattern: "void baysor::bmm<*"}
+  - {name: ncv_colors,       pattern: "baysor::gene_composition_color_embedding_streaming*"}
+  - {name: ncv_colors,       pattern: "baysor::gene_composition_report_embedding_streaming*"}
+  - {name: out_molecules,    pattern: "baysor::save_segmented_df*"}
+  - {name: out_cell_stats,   pattern: "baysor::save_cell_stat_df*"}
+  - {name: polygons,         pattern: "baysor::boundary_polygons_auto(*"}
+  - {name: out_polygons,     pattern: "baysor::save_polygon*"}
+  - {name: out_counts,       pattern: "baysor::save_matrix_to_*"}
+  - {name: report,           pattern: "baysor::generate_run_diagnostic_html(*"}
+  - {name: report,           pattern: "baysor::generate_run_segmentation_html(*"}
+
+# Top-level callers of the phase functions (patterns on demangled names):
+# only calls from these count as a phase; a phase function called from
+# anywhere else stays in its caller's phase.
+phase_callers: ["cmd_run(*", "auto cmd_run(*"]
+
+# ---------------------------------------------------------------------------
+# Scaling tier (scaling.py): real data sizes, low-overhead measurements.
+# Nested size ladders with constant local density (scaling_crops.py): every
+# rung is the smallest square around the slide's median molecule position
+# holding >= N filtered molecules (qv >= min_qv, real genes, vendor nucleus
+# prior, as ../fetch builds the *_full/*_quick datasets); `all` is the
+# whole slide. Baysor flags and scale come from `reference_dataset`.
+scaling:
+  slides:
+    - id: lung
+      transcripts: cache/realx/Xenium_V1_humanLung_Cancer_FFPE_outs/transcripts.parquet
+      reference_dataset: xenium_lung_cancer_admix
+      min_qv: 20
+      rungs: [100000, 250000, 500000, 1000000, 2000000, 4000000, 8000000, all]
+    - id: prime5k
+      transcripts: cache/realx/Xenium_Prime_Ovarian_Cancer_FFPE_XRrun_outs/transcripts.parquet
+      reference_dataset: xenium_prime5k_ovarian_full
+      min_qv: 20
+      rungs: [100000, 250000, 500000, 1000000, 2000000, 4000000, 8000000]
+  # existing benchmark datasets run as single large points
+  extra_datasets: [cosmx_wtx_colon_full]
+  # jobs: gperf = native + gperftools CPU profiler + /proc sampling
+  jobs:
+    gperf:
+      - {slides: [lung, prime5k], threads: [8]}
+      - {extra: true, threads: [8]}
+      - {slides: [lung], threads: [1], max_molecules: 2000000}
+      - {slides: [prime5k], threads: [1], max_molecules: 1000000}
+    heaptrack:
+      - {datasets: [lung_2M, lung_all, prime5k_2M], threads: [8]}
+    # callgrind cross-check of the sampled profile on the lowest rungs
+    # (0.5M would take ~3 h at load ~15)
+    callgrind:
+      - {datasets: [lung_100k, lung_250k], threads: [1]}
