@@ -230,6 +230,7 @@ def summarize_callgrind(job_dir: Path, phases_spec: list, top_callers: list) -> 
     order = []
     ambiguous = set()
     region_main = defaultdict(lambda: defaultdict(int))   # region -> phase -> main-thread Ir
+    phase_shorts = defaultdict(set)    # phase -> short names reachable (pool builds only)
     last_phase = None
 
     def add(label, **kw):
@@ -279,6 +280,7 @@ def summarize_callgrind(job_dir: Path, phases_spec: list, top_callers: list) -> 
                             expand(seen, [h], succ)
                             shorts |= {short_name(f) for f in seen - before} | {short_name(h)}
                             changed = True
+                phase_shorts[name] |= shorts
         if ph_cost:
             main_phase = max(ph_cost, key=ph_cost.get)
         else:
@@ -328,6 +330,16 @@ def summarize_callgrind(job_dir: Path, phases_spec: list, top_callers: list) -> 
             pool_thread = pool_thread or cgparse.is_pool_chunk(b)
             in_regions += c[IR]
             split = region_main.get(b)
+            if not split and cgparse.is_pool_chunk(b):
+                # a pool loop that ran entirely on workers (Valgrind runs one
+                # thread at a time, so the caller may get no chunk): phase of
+                # the function enclosing its lambda
+                key, owners = pool_parent(b), []
+                while key and not owners:
+                    owners = [n for n, sh in phase_shorts.items() if key in sh]
+                    key = key[:-len("::{lambda}")] if key.endswith("::{lambda}") else None
+                if owners:
+                    split = {n: 1 for n in owners}
             if not split:
                 split = {"unattributed_regions": 1}
             s = sum(split.values())
@@ -425,8 +437,35 @@ def summarize_callgrind(job_dir: Path, phases_spec: list, top_callers: list) -> 
     top_self = [fn_record(f) for f in self_sorted[:TOP_N]]
     incl_sorted = sorted((f for f in inc if not ENTRY_FNS.match(f)), key=lambda f: -inc[f][IR])
     top_incl = [fn_record(f) for f in incl_sorted[:TOP_N]]
+    by_short = {}
+    for f in inc:
+        k = short_name(f)
+        if k not in by_short or inc[f][IR] > inc[by_short[k]][IR]:
+            by_short[k] = f
+
+    def hot_path(fn: str) -> list:
+        path = agg.hot_path(fn, IR, callers=callers)
+        # the pool's machinery (run_parallel_chunks, ...) is shared by every
+        # parallel loop, so the heaviest caller above it is a different
+        # loop's caller: continue from the enclosing function of the last
+        # pool handler instead
+        chain = [fn] + path
+        cut = next((i for i, f in enumerate(chain) if cgparse.is_pool_runtime(f)), None)
+        if cut is None:
+            return path
+        handler = next((f for f in reversed(chain[:cut]) if pool_parent(f)), None)
+        parent = None
+        if handler:
+            key = pool_parent(handler)
+            while parent is None and key:
+                parent = by_short.get(key)
+                key = key[:-len("::{lambda}")] if key.endswith("::{lambda}") else None
+        if parent is None or parent in chain[:cut]:
+            return chain[1:cut]      # enclosing function inlined: stop at the pool
+        return chain[1:cut] + [parent] + agg.hot_path(parent, IR, max_depth=10, callers=callers)
+
     for rec in top_self[:25] + top_incl[:25]:
-        rec["hot_path"] = [short_name(f) for f in agg.hot_path(rec["fn"], IR, callers=callers)]
+        rec["hot_path"] = [short_name(f) for f in hot_path(rec["fn"])]
 
     top_lines = []
     for rec in top_self[:15]:

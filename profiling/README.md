@@ -42,7 +42,10 @@ profiling/
   scaling.py          scaling-tier runner + summarizer (exponent fits, plots)
   summarize.py        raw outputs -> summary/*.json, *.csv
   report_tables.py    summary -> markdown tables for REPORT.md
-  compare.py          two runs -> per-phase / per-function % deltas
+  compare.py          two runs -> per-phase / per-function % deltas (also two
+                      scaling-tier runs: CPU s, RSS, exponents)
+  report_html.py      two report directories -> one self-contained HTML
+                      before/after report (+ REPORT.md headline numbers)
   cgparse.py          callgrind output parser
   gperf.py            gperftools CPU profile parser + symbolizer
   procmon.py          native runner with /proc CPU/RSS sampling + phase alignment
@@ -151,7 +154,8 @@ Re-running a command skips finished jobs (`job.json` with `status: ok`);
    when the spec entry changes).
 2. Native thread series (`when: before`): 1/2/4/8/16 threads × 3 reps on
    two datasets, alone on the host (as far as a shared host allows), plus
-   8 threads with `OMP_WAIT_POLICY=passive`.
+   8 threads with passive waiting (`OMP_WAIT_POLICY=passive` for OpenMP
+   builds, `BAYSOR_POOL_SPIN_US=0` for builds with Baysor's own pool).
 3. Valgrind pool: at most 7 concurrent Valgrind processes, longest first
    (ordering from `native_s_hint` in the spec), plus one lane of native
    1-thread runs (8 heavy processes in total; the lane's slot goes to the
@@ -166,11 +170,51 @@ Re-running a command skips finished jobs (`job.json` with `status: ok`);
    * DHAT on several datasets and at 16 threads.
 4. `summarize.py` → `runs/<run-id>/summary/`.
 
-Valgrind jobs run with `OMP_WAIT_POLICY=passive`: Valgrind serializes the
-threads of a process, so spinning OpenMP workers would burn simulated
+Valgrind jobs run with `OMP_WAIT_POLICY=passive` and `BAYSOR_POOL_SPIN_US=0`
+(each build ignores the other's variable): Valgrind serializes the
+threads of a process, so spinning workers would burn simulated
 instructions while the thread that owns the work waits for its time slice.
 Multi-threaded jobs add `--fair-sched=yes`. Instruction counts do not depend
 on how many Valgrind jobs run concurrently.
+
+### Threading model: OpenMP and Baysor's own pool
+
+Since `perf-optimization` @ 7c2b936 Baysor has no OpenMP: all parallel loops
+run on its own persistent pool (`include/baysor/utils/thread_pool.h`), sized
+by `--threads` / `BAYSOR_NUM_THREADS` / `OMP_NUM_THREADS` (the suite sets
+all of them). The summarizers handle both builds:
+
+| | OpenMP build | pool build |
+|---|---|---|
+| parallel-region body | outlined function `f._omp_fn.N` | *pool chunk*: the `std::function<void(long, long, int)>` invoker of a work-shared loop (`run_parallel_chunks`, `parallel_for`, `parallel_reduce`, `ParallelRegion::for_each/for_chunks`, subpar/umappp hooks), named `ns::f::{lambda#N}.pool_chunk` after the lambda's enclosing function |
+| runtime (not expanded when mapping regions to phases) | `GOMP_*` | `run_parallel_chunks`, `parallel_region`, `ParallelRegion::{for_chunks,barrier,run_guarded}`, `ThreadPool::*` |
+| region → phase | outlining function reachable from the phase function | the lambda's enclosing function reachable from the phase function (also through persistent-region bodies) |
+| worker cost outside regions | `omp_worker_runtime` | `pool_worker_runtime` (hand-off and barrier waits, replicated code of persistent-region bodies) |
+| waiting (gperftools) | leaf in libgomp barrier/spin functions | first frame above clock/futex/mutex helpers is the pool's machinery (`wait_pool`), or Eigen's GEMM pool idling (`wait_eigen`) |
+| Valgrind wait setting | `OMP_WAIT_POLICY=passive` | `BAYSOR_POOL_SPIN_US=0` |
+
+A persistent region (`parallel_region`, e.g. one per BMM iteration) runs
+its body on every participant, but only its `for_chunks`/`for_each` loops
+are work-shared: `single` blocks and the rest of the body count as serial
+(main thread) or as `pool_worker_runtime` (workers). With 1 thread the pool
+calls the chunk invokers inline, so the serial fraction of a 1-thread run
+is measured exactly as for OpenMP. Eigen's GEMM pool (`EIGEN_GEMM_THREADPOOL`,
+>= 3 threads) has its own threads; their cost is `other_threads`.
+
+`BAYSOR_POOL_SPIN_US=0` under Valgrind: the pool spins up to 20 µs
+(wall-clock deadline) before blocking, so the number of spin instructions
+depends on host timing. Measured on `xenium_pancreas_g377_10k` at 4 threads
+(2026-10-01, 72db7bc): default spin +7.1 M Ir (+0.03 % of 23.8 G) and +35 %
+`pool_worker_runtime` Ir over spin 0. With 1 thread there are no workers and
+the setting has no effect.
+
+`gperf.json` of scaling jobs carries `classes` (samples: `parallel`,
+`wait_pool`, `wait_omp`, `wait_eigen`, per phase; worker samples are mapped
+to phases through the main thread's samples of the same region), which gives
+`scaling_parallel.csv`: per job the wait share, the parallel share and the
+serial share of the non-waiting CPU (Amdahl's *s* at 1 thread). For older
+OpenMP runs without `classes` the parallel share comes from the inclusive
+samples of the `._omp_fn` bodies (whole run only).
 
 ## Reading the results
 
@@ -194,15 +238,17 @@ on how many Valgrind jobs run concurrently.
   `other_threads`. The phases add up to the total Ir.
   Note: `--dump-before` and `--dump-after` on the same function do not
   combine in callgrind 3.27 (only one of them fires), hence before-only.
-* *Serial* = main-thread instructions outside OpenMP outlined bodies
-  (`*._omp_fn.N`); *parallel* = instructions inside them (main + workers).
+* *Serial* = main-thread instructions outside parallel-region bodies
+  (OpenMP outlined bodies `*._omp_fn.N` or pool chunks, see "Threading
+  model"); *parallel* = instructions inside them (main + workers).
   Amdahl bound = 1 / (s + (1 − s)/p) with s = serial share of the 1-thread
   run. Arrow's own thread pool (parquet I/O) is not OpenMP and counts as
   serial.
 * `summary/functions.csv`: top 60 functions by exclusive and by inclusive
   Ir per job, with the hottest source line and the dominant call path
   (heaviest caller chain); `lines.csv`: hottest lines of the top functions.
-* `summary/omp_regions.csv`: per parallel region, Ir per thread and
+* `summary/omp_regions.csv`: per parallel region (OpenMP region or pool
+  chunk, `kind=pool`), Ir per thread and
   max/mean over threads (load imbalance). Caveat: under Valgrind threads run
   one at a time, so `schedule(dynamic)` chunk distribution is not the native
   one; static schedules are faithful.
@@ -247,8 +293,9 @@ $PY profiling/scaling.py summarize .bench-data/profiling/runs/<ID>
   count matches rusage CPU time within 1 %). `gperf.py` symbolizes with
   `nm` and the separate debug files of stripped system libraries
   (`/usr/lib/debug/.build-id`, needed for libm's `pow`/`exp` internals).
-  The OpenMP runtime's barrier/spin functions are reported as
-  "OpenMP wait % of CPU" (the default wait policy spins).
+  The OpenMP runtime's barrier/spin functions (OpenMP builds) or the pool's
+  hand-off/barrier machinery (pool builds) are reported as
+  "wait % of CPU" (see "Threading model").
 * `/proc` sampling every second gives per-phase CPU seconds, CPU/wall and
   RSS, aligned with the phase log lines (short phases get interpolated CPU).
 * `heaptrack` jobs: heaptrack serializes allocations (a whole-slide run uses
@@ -285,3 +332,25 @@ load-sensitive). A 1-thread callgrind job of an unchanged binary reproduces
 its total instruction count to < 0.1 %, so smaller deltas are noise.
 For a quicker loop restrict to the jobs that matter, e.g.
 `--only callgrind --datasets xenium_pancreas_g377_20k`.
+Across commits whose function signatures changed (e.g. OpenMP regions that
+became pool chunks), `--match name` matches functions by their short name.
+With two scaling-tier runs (`scaling_summary.json`) `compare.py` compares per
+job CPU seconds, wall and peak RSS, per phase CPU seconds and RSS, and the
+exponents (`--csv` writes all rows; for exponents `delta_pct` is the
+absolute difference).
+
+## HTML report
+
+```bash
+# report directories hold copies of the summaries of each tier:
+#   summary-report-run/  summary-quick-run/  summary-scaling-run/  (+ compare-*.txt/csv)
+$PY profiling/report_html.py --before .bench-data/profiling/reports/<date>-<shaA> \
+    --after .bench-data/profiling/reports/<date>-<shaB> \
+    [--notes <after>/notes.md] [--md <after>/REPORT.md]     # -> <after>/report.html
+```
+
+One self-contained file (inline CSS, charts as inline SVG with hover
+tooltips, a few lines of JS for sortable tables and tabs; no network). The
+numbers come from the summary files; narrative text (findings, ranked
+bottlenecks, next steps) from the optional notes file, a Markdown subset
+split by `<!-- section: ID -->` lines (ids in `report_html.py --help`).

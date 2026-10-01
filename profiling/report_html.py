@@ -960,9 +960,7 @@ pre-optimization profile @ <strong>{esc(sha_b)}</strong>
                 rows.append([code(ds), t, fmt(a and a["wall_s_min"], 2), fmt(b and b["wall_s_min"], 2),
                              delta(a and a["wall_s_min"], b and b["wall_s_min"]),
                              fmt(spa, 2), fmt(spb, 2), fmt(spa and 100 * spa / t, 0), fmt(spb and 100 * spb / t, 0),
-                             esc(", ".join(f"{x:.0f}" for x in (a or {}).get("loadavg_1m_at_start") or []))
-                             if a and isinstance(a.get("loadavg_1m_at_start"), list) else esc(a and a.get("loadavg_1m_at_start")),
-                             esc(b and b.get("loadavg_1m_at_start"))])
+                             _loads(a), _loads(b)])
         body.append(table(["dataset", "thr", "wall min before", "after", "Δ", "speed-up before", "after",
                            "efficiency % before", "after", "load before", "load after"], rows, raw=True,
                           num_cols=range(1, 9), caption="Wall, speed-up and parallel efficiency (speed-up / threads)"))
@@ -1256,8 +1254,31 @@ pre-optimization profile @ <strong>{esc(sha_b)}</strong>
 
     # -- 7. bottlenecks ----------------------------------------------------
     def bottlenecks(self):
-        return self.section("bottlenecks", "7 · Remaining bottlenecks, ranked, and what to do next",
-                            self.note("bottlenecks") + self.note("next_steps"))
+        body = [self.note("bottlenecks"), self.note("next_steps")]
+        tabs = []
+        for slide, thr, lab in (("lung", 8, "lung, 8 thr (largest rung: whole slide)"),
+                                ("prime5k", 8, "prime5k, 8 thr (largest rung: 8M)"),
+                                ("lung", 1, "lung, 1 thr (largest rung: 2M)")):
+            for kind in ("fn_excl", "fn_incl"):
+                after = [f for f in self.AS.fits if f["slide"] == slide and f["threads"] == thr
+                         and f["what"] == kind and f["tool"] == "gperf"]
+                before = {f["name"]: f for f in self.BS.fits if f["slide"] == slide and f["threads"] == thr
+                          and f["what"] == kind and f["tool"] == "gperf"}
+                after.sort(key=lambda f: -(f["share_last"] or 0))
+                rows = []
+                for f in after[:15]:
+                    b = before.get(f["name"])
+                    rows.append([code(f["name"]), fmt(100 * f["share_last"], 1),
+                                 fmt(b and 100 * b["share_last"], 1), fmt(100 * f["share_first"], 1),
+                                 fmt(f["exponent"], 2), fmt(b and b["exponent"], 2),
+                                 '<span class="flag">super-linear</span>' if f.get("superlinear") is True else ""])
+                tabs.append((f"{lab}, {'exclusive' if kind == 'fn_excl' else 'inclusive'}",
+                             table(["function", "% CPU at largest rung after", "before", "% CPU at smallest rung after",
+                                    "exponent after", "before", ""], rows, raw=True, num_cols={1, 2, 3, 4, 5})))
+        if any("<tr>" in t[1] for t in tabs):
+            body.append("<h3>Supporting data: top functions at real sizes (gperftools CPU share)</h3>"
+                        + tabset("hot", tabs))
+        return self.section("bottlenecks", "7 · Remaining bottlenecks, ranked, and what to do next", "\n".join(body))
 
     # -- 8. method ---------------------------------------------------------
     def method(self):
@@ -1352,6 +1373,16 @@ def _load0(r):
     return v if isinstance(v, (int, float)) else None
 
 
+def _loads(r) -> str:
+    v = r and r.get("loadavg_1m_at_start")
+    if isinstance(v, str):
+        try:
+            v = json.loads(v)
+        except ValueError:
+            return esc(v)
+    return ", ".join(f"{x:.0f}" for x in v) if isinstance(v, list) else "—"
+
+
 def _phase_val(c, name):
     for p in c["phases"]:
         if p["phase"] == name:
@@ -1390,7 +1421,9 @@ section{background:var(--card);border:1px solid var(--line);border-radius:10px;p
 h2{font-size:20px;margin:0 0 12px}h3{font-size:15.5px;margin:22px 0 8px}h4{font-size:14px;margin:16px 0 6px}
 p{margin:6px 0 10px;max-width:1050px}
 code{font:12px/1.4 "JetBrains Mono",Menlo,Consolas,monospace;background:var(--code);padding:1px 4px;border-radius:4px;
-word-break:break-word}
+overflow-wrap:anywhere}
+td:first-child{min-width:150px}td:first-child code{white-space:normal}
+td code{display:inline-block;max-width:520px}
 .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(205px,1fr));gap:12px;margin:10px 0 6px}
 .tile{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--surface)}
 .tl{color:var(--ink2);font-size:12.5px}.tv{font-size:26px;font-weight:650;margin:2px 0}
