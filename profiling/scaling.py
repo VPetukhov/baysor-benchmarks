@@ -143,7 +143,8 @@ def run_job(j: SJob, jd: Path, ds_dir: Path, ctx: dict) -> dict:
     ds = hcommon.load_dataset(ds_dir)
     for old in list(jd.glob("cpu.prof*")) + list(jd.glob("callgrind.out*")) + list(jd.glob("heaptrack.*")):
         old.unlink()
-    cmd = hrun.build_command(ctx["baysor"], ds, jd / "seg", ctx["probe"], ctx["repo"])
+    cmd = hrun.build_command(ctx["baysor"], ds, jd / "seg", ctx["probe"], ctx["repo"],
+                             skip_ncv_color=False)
     env = base_env(j.threads)
     interval = 1.0
     if j.tool == "gperf":

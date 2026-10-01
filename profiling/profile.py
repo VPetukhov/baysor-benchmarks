@@ -168,7 +168,8 @@ def run_native_job(job: Job, jd: Path, baysor: Path, ds_dir: Path, probe, hrun, 
             shutil.rmtree(rd)
         rd.mkdir(parents=True)
         ds = hcommon.load_dataset(ds_dir)
-        cmd = hrun.build_command(baysor, ds, rd / "seg", probe, BENCH)
+        cmd = hrun.build_command(baysor, ds, rd / "seg", probe, BENCH,
+                                   skip_ncv_color=False)
         if job.plot:
             cmd.append("--plot")
         env = thread_env(job.threads, valgrind=False, wait_policy=job.wait_policy)
@@ -190,7 +191,8 @@ def run_valgrind_job(job: Job, jd: Path, baysor: Path, ds_dir: Path, probe, hrun
     for p in list(jd.glob("callgrind.out*")) + list(jd.glob("cachegrind.out*")):
         p.unlink()
     ds = hcommon.load_dataset(ds_dir)
-    cmd = hrun.build_command(baysor, ds, jd / "seg", probe, BENCH)
+    cmd = hrun.build_command(baysor, ds, jd / "seg", probe, BENCH,
+                             skip_ncv_color=False)
     if job.plot:
         cmd.append("--plot")
     vg = valgrind_args(job, jd, spec, valgrind)
