@@ -727,6 +727,130 @@ def test_same_self_comparison_with_noisy_replicates_passes(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# deterministic baselines (baseline.py create --deterministic): tolerance = floor
+# ---------------------------------------------------------------------------
+
+def _setup_deterministic(tmp_path, *, with_real=True, new_degrade=False,
+                         n_reps=1):
+    """Single-run baseline created with --deterministic (1 replicate by
+    default) plus a candidate run over the same sim (+ real) datasets."""
+    root = tmp_path / "data"
+    baselines = tmp_path / "baselines"
+    sim_dir = make_sim_dataset(root / "sim" / "sim_a")
+    truth = pd.read_parquet(sim_dir / "molecules.parquet")[
+        "cell"].to_numpy(np.int64)
+    make_run(root, "rbase", sim_dir, [truth.copy()] * n_reps)
+    make_run(root, "rnew", sim_dir,
+             [corrupt(truth, 0.2, seed=40 + k) if new_degrade
+              else truth.copy() for k in range(n_reps)])
+    if with_real:
+        real_dir = make_real_dataset(root / "real" / "real_a")
+        cells = pd.read_parquet(real_dir / "molecules.parquet")[
+            "cell"].to_numpy(np.int64)
+        make_run(root, "rbase", real_dir, [cells] * n_reps)
+        make_run(root, "rnew", real_dir,
+                 [corrupt(cells, 0.2, seed=60 + k) if new_degrade
+                  else cells.copy() for k in range(n_reps)])
+    assert baseline.create("rbase", "btest", root, baselines,
+                           force=True, deterministic=True) == 0
+    return root, baselines
+
+
+def test_same_deterministic_single_rep_baseline_passes(tmp_path):
+    """A deterministic 1-replicate baseline satisfies the same-mode
+    replicate requirement for sim *and* real datasets; every tolerance is
+    the calibrated floor (k·SD with SD = 0) and the report says so."""
+    root, baselines = _setup_deterministic(tmp_path)
+    assert _compare(root, baselines, "same") == 0
+    report = common.read_json(
+        root / "runs" / "rnew" / "compare_btest_same.json")
+    assert report["summary"]["pass_overall"] is True
+    # sim and real datasets are checked (pass/fail rows), not skipped
+    sim = [c for c in report["checks"]
+           if c["scope"] == "sim" and c["status"] in ("pass", "fail")]
+    real = [c for c in report["checks"]
+            if c["scope"] == "real" and c["status"] in ("pass", "fail")]
+    assert {c["metric"] for c in sim} == set(compare.SIM_PRIMARY_SAME)
+    assert {c["metric"] for c in real} == set(compare.REAL_PRIMARY_SAME)
+    assert all(c["status"] == "pass" for c in sim + real)
+    # tolerances are the floors alone, with the deterministic note on rows
+    for c in sim:
+        assert c["tolerance"] == compare.SIM_FLOORS[c["metric"]]
+        assert c["tolerance_note"] == compare.DET_NOTE
+    for c in real:
+        assert c["tolerance"] == compare.REAL_FLOORS[c["metric"]]
+        assert c["tolerance_note"] == compare.DET_NOTE
+    # gates table and meta state "deterministic baseline: tolerance = floor"
+    assert report["gates"] and all(
+        g["pooled_sd"] == 0.0 and g["tolerance"] == g["floor"]
+        and g["note"] == compare.DET_NOTE for g in report["gates"])
+    assert compare.DET_NOTE in report["meta"]["tolerance"]
+    md = (root / "runs" / "rnew" / "compare_btest_same.md").read_text()
+    assert compare.DET_NOTE in md
+
+
+def test_same_deterministic_baseline_degraded_run_fails(tmp_path):
+    """The floor still gates: a run deviating beyond it fails every primary
+    metric it broke."""
+    root, baselines = _setup_deterministic(tmp_path, new_degrade=True)
+    assert _compare(root, baselines, "same") == 1
+    report = common.read_json(
+        root / "runs" / "rnew" / "compare_btest_same.json")
+    failed = {c["metric"] for c in report["checks"] if c["status"] == "fail"}
+    assert "accuracy_1to1" in failed
+    assert "ari_assigned" in failed or "frac_cells_matched" in failed
+
+
+def test_same_deterministic_two_replicate_baseline_uses_floor(tmp_path):
+    """With >= 2 bitwise-identical replicates the replicate agreement exists
+    (all pairs identical) but the SD term is 0: tolerance = floor."""
+    root, baselines = _setup_deterministic(tmp_path, n_reps=2)
+    assert _compare(root, baselines, "same") == 0
+    report = common.read_json(
+        root / "runs" / "rnew" / "compare_btest_same.json")
+    real = [c for c in report["checks"]
+            if c["scope"] == "real" and c["status"] in ("pass", "fail")]
+    assert {c["metric"] for c in real} == set(compare.REAL_PRIMARY_SAME)
+    for c in real:
+        assert c["tolerance"] == compare.REAL_FLOORS[c["metric"]]
+        assert c["tolerance_note"] == compare.DET_NOTE
+    assert all(g["note"] == compare.DET_NOTE for g in report["gates"])
+
+
+def test_improved_deterministic_regression_gate_uses_floor(tmp_path):
+    """--expect improved against a deterministic baseline gates regressions
+    with the floor alone (SD = 0)."""
+    root, baselines = _setup_deterministic(tmp_path, with_real=False,
+                                           new_degrade=True)
+    assert _compare(root, baselines, "improved") == 1
+    report = common.read_json(
+        root / "runs" / "rnew" / "compare_btest_improved.json")
+    rows = {c["metric"]: c for c in report["checks"]
+            if c["scope"] == "sim" and c["status"] == "fail"}
+    assert "accuracy_1to1" in rows
+    assert rows["accuracy_1to1"]["tolerance"] == \
+        compare.SIM_FLOORS["accuracy_1to1"]
+    assert rows["accuracy_1to1"]["tolerance_note"] == compare.DET_NOTE
+    agg = [c for c in report["checks"]
+           if c["metric"] == "aggregate_accuracy_1to1"]
+    assert agg and agg[0]["status"] == "fail"  # no gain over the reference
+
+
+def test_non_deterministic_report_has_no_floor_note(tmp_path):
+    """Plain (non-deterministic) baselines keep today's report exactly: no
+    tolerance note, no tolerance meta line, unchanged pooled SDs."""
+    root, baselines = _setup(tmp_path, with_real=True)
+    assert _compare(root, baselines, "same") == 0
+    report = common.read_json(
+        root / "runs" / "rnew" / "compare_btest_same.json")
+    assert "tolerance" not in report["meta"]
+    assert all("note" not in g for g in report["gates"])
+    assert all(g["tolerance"] == max(compare.K_DEFAULT * g["pooled_sd"],
+                                     g["floor"]) for g in report["gates"])
+    assert all("tolerance_note" not in c for c in report["checks"])
+
+
+# ---------------------------------------------------------------------------
 # run selection (_selection.json): deliberate subset runs
 # ---------------------------------------------------------------------------
 

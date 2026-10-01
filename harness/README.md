@@ -386,7 +386,7 @@ harness datasets").
 
 ```bash
 $PY harness/baseline.py create --run-id R --name NAME [--force]
-    [--allow-incomplete | --identical]
+    [--allow-incomplete | --identical] [--deterministic]
 $PY harness/baseline.py list
 ```
 
@@ -406,11 +406,60 @@ $PY harness/baseline.py list
 * `--identical` creates the exact-baseline flavour for `--expect identical`:
   it requires a 1-thread run (bitwise-deterministic) with ≥ 1 successful
   replicate and records `flavour: identical` in the JSON;
+* `--deterministic` records the baseline of a **bitwise-deterministic
+  binary** (see "Deterministic baselines" below): with ≥ 2 successful
+  replicates their assignments must be pairwise identical (assignment
+  sha256, an error otherwise), a single replicate is accepted, and the
+  JSONs carry `"deterministic": true`;
 * everything is staged in temp directories and swapped in atomically: an
   error — including a failed `--force` overwrite — never deletes or
   corrupts the previous baseline and leaves no stale files behind.
 
+### Deterministic baselines
+
+Baysor on the `perf-optimization` branch is bitwise deterministic at any
+thread count: replicates of such a run are identical and carry no noise
+information, so their SD is 0 and the only meaningful tolerance is the
+calibrated floor. Freeze such a run with:
+
+```bash
+$PY harness/baseline.py create --run-id R --name NAME --deterministic [--force]
+```
+
+* with ≥ 2 successful replicates the create step verifies they are
+  pairwise bitwise identical (assignment sha256) and **errors** (exit 2,
+  old baseline kept) if any two disagree; exactly 1 replicate is accepted;
+* the baseline JSONs record `"deterministic": true` (baselines without
+  the flag record `false`);
+* `compare.py --expect same|improved` against such a baseline
+  * accepts a single replicate for **sim and real** datasets — the one
+    replicate is the reference and needs no replicate agreement (without
+    the flag a real baseline with < 2 successful replicates still exits
+    2, see `--expect same` below);
+  * uses `tolerance = floor` (`k·SD` with `SD = 0`, so k is irrelevant),
+    stated in the report as `deterministic baseline: tolerance = floor`
+    (meta line, the gated-metrics table's `note` column, and
+    `tolerance_note` on every gated check row);
+* non-deterministic baselines behave exactly as before (pooled SDs, the
+    exit-2 gate, one-sided real-agreement gates).
+
+Self-check (recreate the baseline from its own run and compare it against
+itself — must pass):
+
+```bash
+$PY harness/baseline.py create --run-id perf7c2b936-noise \
+    --name perf-7c2b936 --deterministic --force
+$PY harness/compare.py --run-id perf7c2b936-noise \
+    --baseline perf-7c2b936 --expect same
+```
+
 ### Determinism findings (code inspection + experiment, 2026-09-29)
+
+**Update 2026-10-01:** Baysor on the `perf-optimization` branch is bitwise
+deterministic at any thread count (the E-step scheduling sensitivity
+below is fixed), which is what `--deterministic` ("Deterministic
+baselines" above) encodes. The findings below document the earlier
+binaries and remain the rationale for the plain noise-floor baselines.
 
 * **There is no seed option.** `baysor run --help` exposes no seed/random-seed
   flag.
@@ -584,7 +633,13 @@ Provenance gates (fail, not warn):
 * a real dataset in the baseline with **fewer than 2 successful replicates**
   is a usage error (**exit 2**, `baseline needs >=3 replicates for real
   same-mode checks`): a single segmentation has no replicate agreement to
-  measure the noise floor against, and no threshold is invented for it.
+  measure the noise floor against, and no threshold is invented for it —
+  **except for a deterministic baseline** (`baseline.py create
+  --deterministic`), whose single replicate *is* the reference: it passes
+  this requirement for sim and real datasets and its tolerance is the
+  calibrated floor alone (`k·SD` with `SD = 0`), reported as
+  `deterministic baseline: tolerance = floor` (see "Deterministic
+  baselines" above);
 
 Metric gates — only the **primary** metrics can fail the run, everything
 else is informational:
@@ -596,7 +651,8 @@ else is informational:
 
 * tolerance = `max(k·SD_pooled, floor)`, k = 3, SD pooled per metric across
   the baseline's datasets of the same kind (sim: replicate SDs of the
-  means; real: replicate-pair agreement SDs);
+  means; real: replicate-pair agreement SDs); for a deterministic baseline
+  the SD term is 0 by definition, so tolerance = floor;
 * real checks measure the run-vs-baseline agreement (all run-rep ×
   baseline-rep pairs) **one-sided**: it must be ≥ the baseline's own
   replicate agreement − tolerance (the cell-count ratio stays two-sided
@@ -605,11 +661,14 @@ else is informational:
   and systematically sits above it, which a two-sided gate would fail;
   a real baseline with < 2 successful
   replicates never reaches this point (exit 2 above) — with ≥ 2 the
-  replicate agreement always exists;
+  replicate agreement always exists; a deterministic baseline with a
+  single replicate reaches it with the expected agreement set to identity
+  (1.0) and tolerance = floor;
 * **false-alarm budget**: every gated check carries its normal-approximation
   tail probability at the used tolerance; the report sums them
   (`false-alarm budget: ~0.009 expected false failures across 16 gated
-  checks`) and warns when the budget exceeds 0.5.
+  checks`) and warns when the budget exceeds 0.5 (a deterministic
+  baseline contributes 0 — its SD is 0).
 
 ### `--expect improved`
 

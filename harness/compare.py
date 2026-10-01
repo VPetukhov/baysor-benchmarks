@@ -24,7 +24,13 @@ Three expectation modes:
     ``inputs.meta_sha256``);
   * a real dataset in the baseline with fewer than 2 successful replicates
     is an error (exit 2): replicate-agreement gates cannot be evaluated
-    against a single-segmentation baseline and no thresholds are invented;
+    against a single-segmentation baseline and no thresholds are invented —
+    except for a **deterministic baseline** (``baseline.py create
+    --deterministic``): a bitwise-reproducible binary needs no replicate
+    agreement, so a single replicate passes this requirement for sim and
+    real datasets and the tolerance is the calibrated floor alone
+    (``k·SD`` with ``SD = 0``), stated in the report as ``deterministic
+    baseline: tolerance = floor``;
   * only a few **primary** metrics gate the verdict —
     sim: one-to-one accuracy, ARI over assigned molecules, recovery fraction,
     cell-count ratio; real: ARI over assigned molecules, matched-cell
@@ -107,6 +113,8 @@ REAL_FLOORS = {
 DEFAULT_REAL_FLOOR = 0.05
 
 K_DEFAULT = 3.0
+# report note for deterministic baselines (baseline.py create --deterministic)
+DET_NOTE = "deterministic baseline: tolerance = floor"
 MIN_EFFECT_ACCURACY = 0.005     # --expect improved: minimum mean gain
 ADMIXTURE_MIN_CELLS = 2000      # admixture gate only on crops with >= cells
 # calibrated floor for --admixture-tolerance: 3 x SD of the Baysor replicate
@@ -157,6 +165,18 @@ def _one_sided_alpha(tol: float, sd: float) -> float:
         return 0.0
     z = tol / sd
     return 0.5 * math.erfc(z / math.sqrt(2))   # = 1 - Phi(z)
+
+
+def _deterministic(base_m: dict) -> bool:
+    """True for a baseline created with ``baseline.py create --deterministic``
+    (bitwise-deterministic binary; recorded per dataset as
+    ``baseline.deterministic``)."""
+    return bool((base_m.get("baseline") or {}).get("deterministic"))
+
+
+def _det_kw(det: bool) -> dict:
+    """Check-row extra marking the tolerance as floor-only, when deterministic."""
+    return {"tolerance_note": DET_NOTE} if det else {}
 
 
 def pooled_sd_by_metric(base_metrics: dict[str, dict], kind: str) -> dict[str, float]:
@@ -406,6 +426,7 @@ def check_sim_dataset(rep: Report, ds_id: str, run_m: dict, base_m: dict,
     run_mean = (run_m.get("sim") or {}).get("mean") or {}
     base_mean = (base_m.get("sim") or {}).get("mean") or {}
     base_sd = (base_m.get("sim") or {}).get("sd") or {}
+    det = _deterministic(base_m)
     if not base_mean:
         rep.check("sim", ds_id, "*", "fail", detail="baseline has no sim metrics")
         return
@@ -426,13 +447,15 @@ def check_sim_dataset(rep: Report, ds_id: str, run_m: dict, base_m: dict,
             continue
         bval = base_mean[metric]
         rval = run_mean.get(metric)
-        sd = pooled.get(metric, 0.0)
+        # deterministic baseline: the SD term is 0 by definition (k·SD = 0),
+        # so the tolerance is the calibrated floor alone
+        sd = 0.0 if det else pooled.get(metric, 0.0)
         floor = floors.get(metric, DEFAULT_SIM_FLOOR)
         tol = max(k * sd, floor)
         if not _finite(rval):
             rep.check("sim", ds_id, metric, "fail", baseline_mean=bval,
                       run_mean=rval, tolerance=tol,
-                      detail="run metric undefined")
+                      detail="run metric undefined", **_det_kw(det))
             continue
         if not _finite(bval):
             rep.check("sim", ds_id, metric, "skip", detail="undefined in baseline")
@@ -454,7 +477,7 @@ def check_sim_dataset(rep: Report, ds_id: str, run_m: dict, base_m: dict,
         rep.check("sim", ds_id, metric, "pass" if ok else "fail",
                   baseline_mean=float(bval), baseline_sd=sd_base,
                   run_mean=float(rval), delta=delta, tolerance=tol,
-                  false_alarm_p=alpha,
+                  false_alarm_p=alpha, **_det_kw(det),
                   detail=None if ok else detail)
 
     # everything else is informational
@@ -508,26 +531,28 @@ def check_real_dataset(rep: Report, ds_id: str, run_m: dict, base_m: dict,
         base_agr = ((base_m.get("real") or {}).get("rep_agreement") or {})
         b_mean = base_agr.get("mean") or {}
         has_floor = bool(b_mean)
+        det = _deterministic(base_m)
 
         def gated_row(metric, r_val, center, tol, ok, deviation, *,
                       two_sided=True, **extra):
-            sd = pooled.get(metric, 0.0)
+            # deterministic baseline: k·SD with SD = 0 -> alpha is 0 too
+            sd = 0.0 if det else pooled.get(metric, 0.0)
             alpha = (_two_sided_alpha(tol, sd) if two_sided
                      else _one_sided_alpha(tol, sd))
             rep.check("real", ds_id, metric, "pass" if ok else "fail",
                       baseline_rep_mean=center, run_vs_baseline_mean=r_val,
                       deviation=deviation, tolerance=tol,
-                      false_alarm_p=alpha, **extra)
+                      false_alarm_p=alpha, **_det_kw(det), **extra)
 
         for metric in REAL_PRIMARY_SAME:
             r_val = _mean([p.get(metric) for p in pairs])
             floor = REAL_FLOORS.get(metric, DEFAULT_REAL_FLOOR)
-            sd = pooled.get(metric, 0.0)
+            sd = 0.0 if det else pooled.get(metric, 0.0)
             tol = max(k * sd, floor)
             if not _finite(r_val):
                 rep.check("real", ds_id, metric, "fail",
                           run_vs_baseline_mean=r_val, tolerance=tol,
-                          detail="run metric undefined")
+                          detail="run metric undefined", **_det_kw(det))
                 continue
             if metric == "cell_count_ratio":
                 # run and baseline must segment about the same number of
@@ -545,10 +570,24 @@ def check_real_dataset(rep: Report, ds_id: str, run_m: dict, base_m: dict,
                 # systematically exceeds the centre, which a two-sided gate
                 # would fail.
                 dev = center - r_val
+                detail = ("run-vs-baseline agreement vs baseline "
+                          "replicate agreement (one-sided)")
+                if det:
+                    detail = (f"{DET_NOTE}; one-sided: run-vs-baseline "
+                              "agreement vs baseline replicate agreement")
                 gated_row(metric, r_val, center, tol, dev <= tol, dev,
+                          two_sided=False, detail=detail)
+            elif det:
+                # deterministic baseline with a single replicate: no
+                # replicate agreement exists, but the binary reproduces its
+                # segmentation exactly — expected agreement is identity
+                # (SD = 0), so the tolerance is the calibrated floor alone
+                dev = 1.0 - r_val
+                gated_row(metric, r_val, 1.0, tol, dev <= tol, dev,
                           two_sided=False,
-                          detail="run-vs-baseline agreement vs baseline "
-                                 "replicate agreement (one-sided)")
+                          detail=f"{DET_NOTE} (single-replicate "
+                                 "deterministic baseline: expected exact "
+                                 "agreement)")
             else:
                 # unreachable: main() rejects same-mode comparisons whose
                 # real baseline has < 2 successful replicates (exit 2)
@@ -804,11 +843,20 @@ def render_markdown(rep: Report) -> str:
     if rep.gate_info:
         lines.append("## Gated metrics (tolerance = max(k·SD_pooled, floor))")
         lines.append("")
-        lines.append("| kind | metric | pooled SD | floor | tolerance |")
-        lines.append("|---|---|---|---|---|")
+        with_note = any(g.get("note") for g in rep.gate_info)
+        header = "| kind | metric | pooled SD | floor | tolerance |"
+        sep = "|---|---|---|---|---|"
+        if with_note:
+            header += " note |"
+            sep += "---|"
+        lines.append(header)
+        lines.append(sep)
         for g in rep.gate_info:
-            lines.append(f"| {g['kind']} | {g['metric']} | {_fmt(g['pooled_sd'], 5)} "
-                         f"| {_fmt(g['floor'])} | {_fmt(g['tolerance'])} |")
+            row = (f"| {g['kind']} | {g['metric']} | {_fmt(g['pooled_sd'], 5)} "
+                   f"| {_fmt(g['floor'])} | {_fmt(g['tolerance'])} |")
+            if with_note:
+                row += f" {g.get('note', '')} |"
+            lines.append(row)
         lines.append("")
 
     if rep.expect == "identical":
@@ -878,19 +926,26 @@ def load_run_selection(run_root: Path) -> set[str]:
 
 
 def record_gate_info(pooled_sim: dict[str, float], pooled_real: dict[str, float],
-                     k: float) -> list[dict]:
-    """Tolerance table for the report (same / improved gates)."""
+                     k: float, deterministic: bool = False) -> list[dict]:
+    """Tolerance table for the report (same / improved gates).
+
+    Deterministic baselines carry the SD term as 0 (tolerance = floor) and
+    a ``note`` saying so in every row.
+    """
     out = []
     for kind, pooled, floors, default_floor, primary in (
             ("sim", pooled_sim, SIM_FLOORS, DEFAULT_SIM_FLOOR, SIM_PRIMARY_SAME),
             ("real", pooled_real, REAL_FLOORS, DEFAULT_REAL_FLOOR,
              REAL_PRIMARY_SAME)):
         for metric in primary:
-            sd = pooled.get(metric, 0.0)
+            sd = 0.0 if deterministic else pooled.get(metric, 0.0)
             floor = floors.get(metric, default_floor)
-            out.append({"kind": kind, "metric": metric,
-                        "pooled_sd": sd, "floor": floor,
-                        "tolerance": max(k * sd, floor)})
+            row = {"kind": kind, "metric": metric,
+                   "pooled_sd": sd, "floor": floor,
+                   "tolerance": max(k * sd, floor)}
+            if deterministic:
+                row["note"] = DET_NOTE
+            out.append(row)
     return out
 
 
@@ -1066,6 +1121,11 @@ def main(argv: Optional[list[str]] = None) -> int:
                 continue
             ok_reps = [r for r in bm.get("reps", [])
                        if r.get("status") == "ok"]
+            if len(ok_reps) < 2 and _deterministic(bm):
+                # deterministic baseline: the single replicate *is* the
+                # reference and its tolerance is the floor (SD = 0) — no
+                # replicate agreement is needed, for sim and real alike
+                continue
             if len(ok_reps) < 2:
                 print(f"error: {ds_id}: baseline needs >=3 replicates for "
                       f"real same-mode checks "
@@ -1093,6 +1153,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.expect == "improved" and run_sha != base_sha:
         rep.meta["binary sha note"] = ("differs from baseline (expected for an "
                                        "algorithm change)")
+    baseline_det = all(_deterministic(mm) for mm in base_metrics.values())
+    if args.expect in ("same", "improved") and baseline_det:
+        rep.meta["tolerance"] = f"{DET_NOTE} (k·SD with SD = 0)"
     # informational: the NCV colour choice never gates a comparison (colours
     # are not part of any hash or metric), but recording it documents why a
     # skip-colours run compares cleanly against a coloured baseline
@@ -1130,7 +1193,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.expect in ("same", "improved"):
         pooled_sim = pooled_sd_by_metric(base_metrics, "sim")
         pooled_real = pooled_sd_by_metric(base_metrics, "real")
-        rep.gate_info = record_gate_info(pooled_sim, pooled_real, args.k)
+        rep.gate_info = record_gate_info(pooled_sim, pooled_real, args.k,
+                                         deterministic=baseline_det)
 
     # per-dataset checks
     for ds_id in sorted(set(run_metrics) & set(base_metrics)):

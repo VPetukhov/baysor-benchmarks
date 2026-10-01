@@ -129,6 +129,31 @@ Official baselines of the current algorithm (stored under
 | `$BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e-t1/` | `identical` | previous 1-thread baseline (binary `baysor-bugfixes-35e8a7e`, before the edge-order fix: path-length sensitive); kept for reference |
 | `$BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e/` | noise floor | quick + full tier, 6 threads, 3 replicates (full tier: see its README), cellAdmix audit with stable typing |
 
+### Deterministic baselines
+
+Baysor on the `perf-optimization` branch is bitwise deterministic at any
+thread count: replicates of such a run are identical and carry no noise
+information (SD = 0). A baseline created from a single replicate of that
+deterministic binary can gate `--expect same` (and `improved`) on sim and
+real datasets, with the tolerances taken from the calibrated floors alone:
+
+```bash
+# freeze a deterministic run (verifies pairwise-identical replicates when
+# there are >= 2, accepts a single one, records "deterministic": true)
+$PY harness/baseline.py create --run-id <run> --name <name> \
+    --deterministic [--force]
+# compare against it: a 1-replicate baseline satisfies the replicate-count
+# requirement for sim and real datasets; tolerance = floor (k*SD, SD = 0)
+$PY harness/compare.py --run-id <run> --baseline <name> --expect same
+```
+
+Reports state `deterministic baseline: tolerance = floor` (meta line,
+gated-metrics table note and gated check rows). Baselines created without
+`--deterministic` behave exactly as before (replicate-count requirement,
+pooled-SD tolerances). `$BAYSOR_BENCH_DATA/baselines/perf-7c2b936/` is such
+a baseline, frozen from the run `perf7c2b936-noise`; details in
+[`harness/README.md`](harness/README.md) "Deterministic baselines".
+
 Setup used by every command below (from the repository root):
 
 ```bash

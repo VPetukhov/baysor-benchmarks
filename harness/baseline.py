@@ -20,6 +20,14 @@ stored; use ``--allow-incomplete`` to override (fixtures, smoke baselines).
 identical``: a 1-thread run (bitwise-deterministic), 1+ replicates, recorded
 as ``flavour: identical``.
 
+``--deterministic`` records a baseline from a bitwise-deterministic binary
+for ``--expect same``/``improved``: with >= 2 successful replicates their
+assignments must be pairwise identical (assignment sha256) — an error
+otherwise — while a single replicate is accepted; the JSONs carry
+``"deterministic": true`` and ``compare.py`` then uses tolerance = floor
+(k*SD with SD = 0) and lets a 1-replicate baseline satisfy the same-mode
+replicate requirement.
+
 Everything is staged in temp directories and swapped in atomically at the
 end: an error (or ``--force`` over an existing baseline) never leaves stale
 files behind and never deletes the old baseline unless the new one is fully
@@ -45,7 +53,8 @@ MIN_REPLICATES = 3
 
 def _collect_dataset(run_root: Path, ds_root: Path, mf: Path, data_out: Path,
                      name: str, run_id: str, identical: bool,
-                     allow_incomplete: bool, problems: list[str]) -> Optional[dict]:
+                     allow_incomplete: bool, deterministic: bool,
+                     problems: list[str]) -> Optional[dict]:
     """Stage one dataset's baseline files under ``data_out`` and return the
     amended metrics dict (or None, appending to ``problems``)."""
     m = common.read_json(mf)
@@ -62,11 +71,18 @@ def _collect_dataset(run_root: Path, ds_root: Path, mf: Path, data_out: Path,
         if n_ok < 1:
             problems.append(f"{ds_id}: no successful replicates")
             return None
+    elif deterministic:
+        # a deterministic binary needs no multi-replicate noise floor: 1
+        # replicate is the reference; >= 2 must agree bitwise (verified
+        # below after the assignment tables are copied)
+        if n_ok < 1:
+            problems.append(f"{ds_id}: no successful replicates")
+            return None
     elif n_ok < MIN_REPLICATES and not allow_incomplete:
         problems.append(
             f"{ds_id}: only {n_ok} successful replicate(s); a noise floor needs >= "
-            f"{MIN_REPLICATES} (use --allow-incomplete for deterministic/"
-            f"fixture runs)")
+            f"{MIN_REPLICATES} (use --allow-incomplete or --deterministic for "
+            f"fixture/deterministic runs)")
         return None
 
     # copy assignment tables of successful replicates, record their sha256
@@ -86,6 +102,18 @@ def _collect_dataset(run_root: Path, ds_root: Path, mf: Path, data_out: Path,
                             f"({recorded} != {sha})")
             continue
         sha_by_rep[str(rec["rep"])] = sha
+
+    # a deterministic baseline must be reproducible: with >= 2 replicates
+    # every successful replicate must be bitwise identical, otherwise the
+    # "deterministic" label would be a lie (single replicate: accepted above)
+    if deterministic and len(sha_by_rep) >= 2:
+        distinct = set(sha_by_rep.values())
+        if len(distinct) > 1:
+            problems.append(
+                f"{ds_id}: --deterministic requires bitwise-identical "
+                f"replicates, but {len(distinct)} distinct assignment sha256 "
+                f"values across {len(sha_by_rep)} successful replicate(s)")
+            return None
 
     # saved cell types (rep0's audit typing: quick-cluster anchor or transfer)
     celltypes_sha = None
@@ -124,6 +152,7 @@ def _collect_dataset(run_root: Path, ds_root: Path, mf: Path, data_out: Path,
         "created": common.utc_now(),
         "flavour": "identical" if identical else "noise_floor",
         "identical": bool(identical),
+        "deterministic": bool(deterministic),
         "noise_floor_replicates": n_ok,
         "noise_floor_valid": n_ok >= MIN_REPLICATES,
         "assignments_dir": f"$BAYSOR_BENCH_DATA/baselines/{name}/{ds_id}/",
@@ -172,7 +201,7 @@ def _commit(swaps: list[tuple[Path, Path]], force: bool) -> None:
 
 def create(run_id: str, name: str, root: Path, baselines_dir: Path,
            allow_incomplete: bool = False, force: bool = False,
-           identical: bool = False) -> int:
+           identical: bool = False, deterministic: bool = False) -> int:
     if not NAME_RE.fullmatch(name):
         print(f"error: invalid baseline name {name!r}", file=sys.stderr)
         return 2
@@ -229,7 +258,7 @@ def create(run_id: str, name: str, root: Path, baselines_dir: Path,
             data_out = data_tmp / ds_id
             m = _collect_dataset(run_root, run_root / ds_id, mf, data_out,
                                  name, run_id, identical, allow_incomplete,
-                                 problems)
+                                 deterministic, problems)
             if m is None:
                 continue
             out_path = json_tmp / f"{ds_id}.json"
@@ -262,7 +291,8 @@ def create(run_id: str, name: str, root: Path, baselines_dir: Path,
         bl = m["baseline"]
         print(f"  {m['dataset']['id']}: {bl['noise_floor_replicates']} ok rep(s), "
               f"{m['dataset'].get('n_molecules')} molecules, "
-              f"flavour={bl['flavour']}, "
+              f"flavour={bl['flavour']}"
+              f"{', deterministic' if bl.get('deterministic') else ''}, "
               f"assign sha256: {list(bl['assignment_sha256'].values())[:1]}"
               f"{'...' if len(bl['assignment_sha256']) > 1 else ''}"
               f"{', celltypes+fixed-pairs stored' if bl.get('celltypes_sha256') else ''}")
@@ -340,7 +370,8 @@ def list_baselines(baselines_dir: Path) -> int:
             print(f"  {m['dataset']['id']}: run={bl.get('run_id')} "
                   f"reps={bl.get('noise_floor_replicates')} "
                   f"valid_floor={bl.get('noise_floor_valid')} "
-                  f"flavour={bl.get('flavour', 'noise_floor')}")
+                  f"flavour={bl.get('flavour', 'noise_floor')} "
+                  f"deterministic={bl.get('deterministic', False)}")
     return 0
 
 
@@ -362,6 +393,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     c.add_argument("--identical", action="store_true",
                    help="exact baseline flavour for --expect identical: requires "
                         "a 1-thread run (bitwise-deterministic), 1+ replicates")
+    c.add_argument("--deterministic", action="store_true",
+                   help="baseline of a bitwise-deterministic binary: verifies "
+                        "that >= 2 successful replicates are pairwise "
+                        "identical (assignment sha256) and accepts a single "
+                        "replicate; records \"deterministic\": true so "
+                        "compare.py uses tolerance = floor (k*SD, SD = 0)")
 
     l = sub.add_parser("list", help="list baselines")
     l.add_argument("--baselines-dir", default=None)
@@ -392,7 +429,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         root = common.data_root(args.data_root)
         return create(args.run_id, args.name, root, baselines_dir,
                       allow_incomplete=args.allow_incomplete, force=args.force,
-                      identical=args.identical)
+                      identical=args.identical,
+                      deterministic=args.deterministic)
     return list_baselines(baselines_dir)
 
 

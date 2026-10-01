@@ -317,3 +317,71 @@ def test_create_suite_unknown_suite_is_setup_error(tmp_path):
     root = tmp_path / "data"
     assert baseline.main(["create-suite", "--suite", "nope", "--name", "x",
                           "--run-id", "r", "--data-root", str(root)]) == 2
+
+
+# ---------------------------------------------------------------------------
+# --deterministic baselines (bitwise-reproducible binary)
+# ---------------------------------------------------------------------------
+
+def test_create_deterministic_single_replicate_accepted(tmp_path):
+    """A deterministic baseline needs no multi-replicate noise floor: one
+    successful replicate is accepted and recorded as deterministic."""
+    root = tmp_path / "data"
+    _sim_run(root, n_reps=1)
+    baselines = tmp_path / "baselines"
+    # without the flag a single replicate is refused (floor needs >= 3)
+    assert baseline.create("run1", "det", root, baselines) == 2
+    assert not (baselines / "det").exists()
+    # with --deterministic it becomes the reference and is accepted
+    assert baseline.create("run1", "det", root, baselines,
+                           deterministic=True) == 0
+    m = common.read_json(baselines / "det" / "sim_a.json")
+    assert m["baseline"]["deterministic"] is True
+    assert m["baseline"]["noise_floor_replicates"] == 1
+    assert m["baseline"]["flavour"] == "noise_floor"
+
+
+def test_create_deterministic_flag_via_cli(tmp_path):
+    root = tmp_path / "data"
+    _sim_run(root, n_reps=1)
+    rc = baseline.main(["create", "--run-id", "run1", "--name", "detcli",
+                        "--data-root", str(root), "--deterministic"])
+    assert rc == 0
+    m = common.read_json(root / "baselines" / "detcli" / "sim_a.json")
+    assert m["baseline"]["deterministic"] is True
+
+
+def test_create_records_deterministic_false_by_default(tmp_path):
+    """Baselines without the flag record deterministic=false and keep the
+    plain noise-floor behaviour."""
+    root = tmp_path / "data"
+    _sim_run(root)
+    baselines = tmp_path / "baselines"
+    assert baseline.create("run1", "plain", root, baselines) == 0
+    m = common.read_json(baselines / "plain" / "sim_a.json")
+    assert m["baseline"]["deterministic"] is False
+    assert m["baseline"]["noise_floor_valid"] is True
+
+
+def test_create_deterministic_requires_bitwise_identical_replicates(tmp_path):
+    """With >= 2 replicates --deterministic verifies pairwise-identical
+    assignments (sha256) and errors otherwise, leaving nothing behind."""
+    baselines = tmp_path / "baselines"
+    # identical replicates: accepted
+    root = tmp_path / "data"
+    _sim_run(root)                      # degrade=False -> every rep == truth
+    assert baseline.create("run1", "det3", root, baselines,
+                           deterministic=True) == 0
+    m = common.read_json(baselines / "det3" / "sim_a.json")
+    assert m["baseline"]["deterministic"] is True
+    assert m["baseline"]["noise_floor_replicates"] == 3
+    # disagreeing replicates: refused, no baseline written
+    root2 = tmp_path / "data2"
+    _sim_run(root2, degrade=True)       # a different corruption per rep
+    rc = baseline.create("run1", "detbad", root2, baselines,
+                         deterministic=True)
+    assert rc == 2
+    assert not (baselines / "detbad").exists()
+    assert not [d for d in baselines.iterdir() if d.name.startswith(".")]
+    assert not [d for d in (root2 / "baselines").iterdir()
+                if d.name.startswith(".")]
