@@ -669,6 +669,20 @@ pre-optimization profile @ <strong>{esc(sha_b)}</strong>
         nb, na = B.native_row(REP, 1), A.native_row(REP, 1)
         tiles.append(stat_tile("Peak RSS, pancreas 20k, 1 thr", nb and nb["peak_rss_kb"] / 1024,
                                na and na["peak_rss_kb"] / 1024, " MiB", nd=0))
+        cb_, ca_ = B.cg(job), A.cg(job)
+        if cb_ and ca_:
+            tiles.append(stat_tile("Amdahl bound at 16 thr (whole run)", cb_["amdahl"]["16"], ca_["amdahl"]["16"],
+                                   "×", lower_is_better=False, nd=2,
+                                   note=f"serial share {100 * cb_['serial_frac']:.0f} % → {100 * ca_['serial_frac']:.0f} %"))
+        db_, da_ = B.jobs().get(f"dhat-{REP}-t1"), A.jobs().get(f"dhat-{REP}-t1")
+        if db_ and da_:
+            tiles.append(stat_tile("Heap allocations, 1 thr", db_["total_blocks"] / 1e6, da_["total_blocks"] / 1e6,
+                                   " M", nd=2, note=f"peak heap {db_['peak_bytes'] / 2**20:.1f} → "
+                                                    f"{da_['peak_bytes'] / 2**20:.1f} MiB (DHAT)"))
+        jp = f"{job}-plot"
+        if B.total_ir(jp) and A.total_ir(jp):
+            tiles.append(stat_tile("Instructions with --plot", B.total_ir(jp) / 1e9, A.total_ir(jp) / 1e9, " G Ir",
+                                   nd=1, note="HTML reports included"))
         crop = '<div class="tiles">' + "".join(tiles) + "</div>"
 
         real = []
@@ -1220,7 +1234,11 @@ pre-optimization profile @ <strong>{esc(sha_b)}</strong>
                          + table(["allocation site", "location", "live at peak MiB", "% of peak", "allocated MiB",
                                   "allocations"], r1, raw=True, num_cols={2, 3, 4, 5}, caption="Live at the heap peak")
                          + table(["allocation site", "location", "allocations", "before (same site)", "MiB",
-                                  "before"], r2, raw=True, num_cols={2, 3, 4, 5}, caption="Churn (allocation count)")))
+                                  "before"], r2, raw=True, num_cols={2, 3, 4, 5}, caption="Churn (allocation count)")
+                         + (table(["allocation site (before)", "location", "allocations", "MiB"],
+                                  [[code(s["site"]), code(s["loc"]), fmt(s["tbk"], 0), fmt(s["tb"] / 2**20, 1)]
+                                   for s in da["top_churn_blocks"][:8]], raw=True, num_cols={2, 3},
+                                  caption="Churn before (2026-09-30): the sites of the old code") if da else "")))
         body.append("<h3>DHAT: what is live at the peak, churn by site (after)</h3>" + tabset("dhat", tabs))
         # heaptrack after
         for h in self.AS.heaptrack:

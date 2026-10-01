@@ -23,7 +23,7 @@ PHASE_ORDER = ["startup", "loading", "prior", "confidence", "molecule_graph", "m
                "bmm_init", "bmm_iterations", "ncv_colors", "out_molecules",
                "glue_after_out_molecules", "out_cell_stats", "polygons", "out_polygons",
                "glue_after_out_polygons", "out_counts", "report", "shutdown",
-               "omp_worker_runtime", "other_threads"]
+               "omp_worker_runtime", "pool_worker_runtime", "other_threads"]
 
 
 def G(v):
@@ -336,7 +336,9 @@ def section_omp(run: Run, dataset: str, threads=16, n=12) -> str:
         vals = sorted(r["per_thread"].values(), reverse=True)
         rows.append((f"`{r['region']}`", pct(r["pct"], 2), r["calls_main"], r["n_threads_active"],
                      r["max_over_mean"], G(vals[0]) if vals else "", G(vals[-1]) if vals else ""))
-    return table(["OpenMP region", "% Ir", "entries (main)", "threads with work",
+    pool = any(r.get("kind") == "pool" for r in c["omp_regions"])
+    return table(["parallel region (pool chunk)" if pool else "OpenMP region", "% Ir", "entries (main)",
+                  "threads with work",
                   "max/mean over threads", "max thread (G Ir)", "min thread (G Ir)"], rows)
 
 
@@ -407,7 +409,7 @@ def main(argv=None) -> int:
     parts += [f"\n## Threads (callgrind): {rep}\n", section_threads(run, rep),
               f"\n## Per phase vs threads: {rep}\n", section_phase_threads(run, rep),
               f"\n## Serial fraction and Amdahl bound: {rep}\n", section_amdahl(run, f"callgrind-{rep}-t1"),
-              f"\n## OpenMP regions at 16 threads: {rep}\n", section_omp(run, rep),
+              f"\n## Parallel regions at 16 threads: {rep}\n", section_omp(run, rep),
               f"\n## Native thread series: {rep}\n", section_native_threads(run, rep)]
     for other in ("xenium_prime5k_20k",):
         if f"native-{other}-t2" in run.jobs:
