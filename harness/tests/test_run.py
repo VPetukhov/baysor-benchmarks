@@ -177,6 +177,64 @@ def test_build_command_has_z_column(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# NCV colour skipping (--skip-ncv-color by default)
+# ---------------------------------------------------------------------------
+
+PROBE_WITH_NCV = dict(
+    FAKE_PROBE, flags=dict(FAKE_PROBE["flags"], **{"skip-ncv-color": True}))
+
+
+def _ncv_dataset(tmp_path, name="dsn", **over):
+    over.setdefault("prior", "none")
+    over.setdefault("config", None)
+    return common.load_dataset(
+        make_sim_dataset(tmp_path / "data" / "sim" / name, baysor_overrides=over))
+
+
+def test_build_command_skips_ncv_color_by_default(tmp_path):
+    """With flag support the builder adds --skip-ncv-color (default)."""
+    ds = _ncv_dataset(tmp_path)
+    cmd = runner.build_command(Path("/bin/baysor"), ds, tmp_path / "seg",
+                               PROBE_WITH_NCV, REPO)
+    assert cmd.count("--skip-ncv-color") == 1
+    assert cmd.index("--skip-ncv-color") < cmd.index("-o")
+
+
+def test_build_command_ncv_color_opt_out(tmp_path):
+    """skip_ncv_color=False (the --ncv-color flag) re-enables the colours."""
+    ds = _ncv_dataset(tmp_path, "dso")
+    cmd = runner.build_command(Path("/bin/baysor"), ds, tmp_path / "seg",
+                               PROBE_WITH_NCV, REPO, skip_ncv_color=False)
+    assert "--skip-ncv-color" not in cmd
+
+
+def test_build_command_no_skip_flag_without_binary_support(tmp_path):
+    """A binary whose help lacks --skip-ncv-color keeps its old behaviour:
+    the default must not emit a flag it cannot parse."""
+    ds = _ncv_dataset(tmp_path, "dsu")
+    cmd = runner.build_command(Path("/bin/baysor"), ds, tmp_path / "seg",
+                               FAKE_PROBE, REPO)   # default skip_ncv_color=True
+    assert "--skip-ncv-color" not in cmd
+
+
+def test_build_command_extra_args_skip_ncv_color_deduplicated(tmp_path):
+    """extra_args carrying --skip-ncv-color: exactly one occurrence."""
+    ds = _ncv_dataset(tmp_path, "dsv", extra_args=["--skip-ncv-color"])
+    cmd = runner.build_command(Path("/bin/baysor"), ds, tmp_path / "seg",
+                               PROBE_WITH_NCV, REPO)
+    assert cmd.count("--skip-ncv-color") == 1
+
+
+def test_skip_ncv_color_effective():
+    probe = {"flags": {"skip-ncv-color": True}}
+    assert runner.skip_ncv_color_effective(probe, _args_ns()) is True
+    assert runner.skip_ncv_color_effective(
+        probe, _args_ns(ncv_color=True)) is False
+    assert runner.skip_ncv_color_effective({"flags": {}}, _args_ns()) is False
+    assert runner.skip_ncv_color_effective({}, _args_ns()) is False
+
+
+# ---------------------------------------------------------------------------
 # segmentation output parsing / alignment
 # ---------------------------------------------------------------------------
 
@@ -396,6 +454,33 @@ def test_reusable_run_checks_status_binary_threads_scale(tmp_path):
     ok, why = runner.reusable_run({"status": "ok", "threads": 6}, probe,
                                   _args_ns())
     assert not ok and "sha256" in why
+
+
+def test_reusable_run_checks_skip_ncv_color():
+    """--skip-existing must not reuse a replicate whose NCV colour choice
+    differs from the current invocation (legacy run.json without the field
+    ran with colours)."""
+    probe = {"sha256": "abc", "flags": {"skip-ncv-color": True}}
+    base = {"status": "ok", "binary_sha256": "abc", "threads": 6,
+            "scale_factor": 1.0}
+    ok, why = runner.reusable_run(dict(base, skip_ncv_color=True), probe,
+                                  _args_ns())
+    assert ok, why
+    # recorded WITH colours, current invocation skips -> rerun
+    ok, why = runner.reusable_run(dict(base, skip_ncv_color=False), probe,
+                                  _args_ns())
+    assert not ok and "skip_ncv_color" in why
+    # legacy run.json (no field = colours on) -> rerun under the new default
+    ok, why = runner.reusable_run(dict(base), probe, _args_ns())
+    assert not ok and "skip_ncv_color" in why
+    # --ncv-color opt-out: colours on both sides -> reusable
+    ok, why = runner.reusable_run(dict(base, skip_ncv_color=False), probe,
+                                  _args_ns(ncv_color=True))
+    assert ok, why
+    # binary without the flag: effective choice is False on both sides
+    probe_old = {"sha256": "abc", "flags": {}}
+    ok, why = runner.reusable_run(dict(base), probe_old, _args_ns())
+    assert ok, why
 
 
 def test_metrics_record_input_and_rep_provenance(tmp_path):

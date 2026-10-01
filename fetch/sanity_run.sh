@@ -5,12 +5,16 @@
 # The command line is assembled from the dataset's meta.json the way the
 # harness assembles it: config, extra_args (e.g. -z z for 3D crops), scale,
 # prior (`column` -> :prior, `image:<path>` -> the label TIFF, `none` ->
-# no positional), prior confidence and min-molecules-per-cell.
+# no positional), prior confidence and min-molecules-per-cell, plus
+# --skip-ncv-color by default (see NCV_COLOR below).
 #
 # Usage: fetch/sanity_run.sh <dataset_id>
 # Env:   BAYSOR_BIN (required: Baysor binary), BAYSOR_BENCH_DATA, RUN_ID
 #        (default sanity_realx), N_THREADS (default 6, the shared-machine
-#        limit for this suite).
+#        limit for this suite), NCV_COLOR (default 0: pass --skip-ncv-color
+#        when the binary supports it — the benchmark never compares the NCV
+#        colours; set NCV_COLOR=1 to re-enable them). The effective choice
+#        is recorded in timing.json.
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
@@ -19,6 +23,7 @@ BAYSOR_BENCH_DATA=${BAYSOR_BENCH_DATA:-$repo_root/.bench-data}
 BENCH_PY=${BENCH_PY:-$repo_root/.deps/bench/bin/python}
 RUN_ID=${RUN_ID:-sanity_realx}
 N_THREADS=${N_THREADS:-6}
+NCV_COLOR=${NCV_COLOR:-0}
 export N_THREADS
 
 id=${1:?usage: sanity_run.sh <dataset_id>}
@@ -81,8 +86,38 @@ else:
 PYEOF
 )
 
-echo "== baysor run: $id -> $out (OMP_NUM_THREADS=$N_THREADS)"
-cmd=("$BAYSOR_BIN" run "${baysor_opts[@]}" -o "$out" "$ds/molecules.parquet")
+# NCV colours are never compared by the benchmark: skip them by default
+# (only when the binary advertises the flag; NCV_COLOR=1 re-enables them)
+skip_ncv=0
+if [ "$NCV_COLOR" != 1 ]; then
+  help_run=$("$BAYSOR_BIN" run --help 2>&1 || true)
+  case "$help_run" in
+    *--skip-ncv-color*)
+      already=0
+      for o in "${baysor_opts[@]}"; do
+        if [ "$o" = "--skip-ncv-color" ]; then
+          already=1
+        fi
+      done
+      if [ $already -eq 0 ]; then
+        skip_ncv=1
+      fi
+      ;;
+  esac
+fi
+export SKIP_NCV_COLOR=$skip_ncv
+
+if [ $skip_ncv -eq 1 ]; then
+  ncv_txt=skipped
+else
+  ncv_txt=on
+fi
+echo "== baysor run: $id -> $out (OMP_NUM_THREADS=$N_THREADS, ncv-color=$ncv_txt)"
+cmd=("$BAYSOR_BIN" run "${baysor_opts[@]}")
+if [ $skip_ncv -eq 1 ]; then
+  cmd+=("--skip-ncv-color")
+fi
+cmd+=(-o "$out" "$ds/molecules.parquet")
 if [ -n "$prior_arg" ]; then
   cmd+=("$prior_arg")
 fi
@@ -104,6 +139,7 @@ timing = {
     "wall_s": round(wall_s, 2),
     "max_rss_kb": int(r.group(1)) if r else None,
     "threads": int(__import__("os").environ.get("N_THREADS", 6)),
+    "skip_ncv_color": __import__("os").environ.get("SKIP_NCV_COLOR") == "1",
 }
 (out / "timing.json").write_text(json.dumps(timing, indent=2) + "\n")
 print(timing)

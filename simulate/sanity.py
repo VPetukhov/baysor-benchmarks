@@ -2,7 +2,10 @@
 
 Default: one trivial, one sparse and one dense st-recoverability dataset,
 runs ``baysor run`` with the ``meta.baysor`` parameters and the ``prior``
-column as ``:prior``, and records:
+column as ``:prior`` (passing ``--skip-ncv-color`` by default when the
+binary supports it — the benchmark never compares the NCV colours;
+``--ncv-color`` re-enables them and the effective choice is recorded per
+dataset in the report), and records:
 
   * wall time and exit code (a run must finish and produce output);
   * a quick molecule-assignment accuracy: predicted cells are matched to true
@@ -61,6 +64,26 @@ DEFAULT_IDS = [
 ]
 REPORT = common.data_root() / "results" / "simulate" / "sanity_check.json"
 MAX_THREADS = 6
+
+_SKIP_NCV_CACHE: dict[str, bool] = {}
+
+
+def supports_skip_ncv_color(binary: str) -> bool:
+    """Whether ``binary run --help`` advertises ``--skip-ncv-color``.
+
+    Cached per binary path; a binary we cannot execute counts as unsupported
+    (older binaries keep computing colours as before).
+    """
+    key = str(binary)
+    if key not in _SKIP_NCV_CACHE:
+        try:
+            p = subprocess.run([key, "run", "--help"], capture_output=True,
+                               text=True, timeout=60)
+            text = (p.stdout or "") + (p.stderr or "")
+        except (OSError, subprocess.SubprocessError):
+            text = ""
+        _SKIP_NCV_CACHE[key] = "--skip-ncv-color" in text
+    return _SKIP_NCV_CACHE[key]
 
 
 def majority_match_accuracy(pred: np.ndarray, true: np.ndarray,
@@ -180,7 +203,37 @@ def _read_predictions(out_dir: Path, df: pd.DataFrame) -> np.ndarray:
     return aligned
 
 
-def run_dataset(dataset_id: str, binary: str, run_root: Path) -> dict:
+def build_baysor_command(binary: str, molecules: Path, baysor_cfg: dict,
+                          out_dir: Path, *, prior: str, has_z: bool,
+                          skip_ncv_color: bool = True) -> list[str]:
+    """Assemble the ``baysor run`` command line for one dataset.
+
+    ``skip_ncv_color`` (default) appends ``--skip-ncv-color`` unless the
+    binary does not advertise the flag or ``meta.baysor.extra_args`` already
+    carries it (CLI11 rejects repeated options).
+    """
+    b = baysor_cfg
+    cmd = [binary, "run", str(molecules)]
+    if prior == "column":
+        cmd.append(":prior")
+    cmd += ["-x", "x", "-y", "y", "-g", "gene",
+            "-s", f"{b['scale_um']:.4f}",
+            "-m", str(b["min_molecules_per_cell"])]
+    if prior == "column":
+        cmd += ["--prior-segmentation-confidence", str(b["prior_confidence"])]
+    cmd += ["-o", str(out_dir) + os.sep]
+    if has_z:
+        cmd += ["-z", "z"]
+    extra = list(b.get("extra_args") or [])
+    cmd += extra
+    if skip_ncv_color and supports_skip_ncv_color(binary) \
+            and "--skip-ncv-color" not in extra:
+        cmd.append("--skip-ncv-color")
+    return cmd
+
+
+def run_dataset(dataset_id: str, binary: str, run_root: Path,
+                ncv_color: bool = False) -> dict:
     data_dir = common.data_root() / "sim" / dataset_id
     meta = json.loads((data_dir / "meta.json").read_text())
     df = pd.read_parquet(data_dir / "molecules.parquet")
@@ -191,18 +244,10 @@ def run_dataset(dataset_id: str, binary: str, run_root: Path) -> dict:
     prior = b["prior"]
     if prior not in ("column", "none"):
         raise ValueError(f"{dataset_id}: unsupported baysor.prior {prior!r}")
-    cmd = [binary, "run", str(data_dir / "molecules.parquet")]
-    if prior == "column":
-        cmd.append(":prior")
-    cmd += ["-x", "x", "-y", "y", "-g", "gene",
-            "-s", f"{b['scale_um']:.4f}",
-            "-m", str(b["min_molecules_per_cell"])]
-    if prior == "column":
-        cmd += ["--prior-segmentation-confidence", str(b["prior_confidence"])]
-    cmd += ["-o", str(out_dir) + os.sep]
-    if "z" in df.columns:
-        cmd += ["-z", "z"]
-    cmd += list(b.get("extra_args") or [])
+    cmd = build_baysor_command(binary, data_dir / "molecules.parquet", b,
+                               out_dir, prior=prior, has_z="z" in df.columns,
+                               skip_ncv_color=not ncv_color)
+    skip_ncv = (not ncv_color) and supports_skip_ncv_color(binary)
 
     env = dict(os.environ,
                OMP_NUM_THREADS=str(MAX_THREADS),
@@ -216,6 +261,7 @@ def run_dataset(dataset_id: str, binary: str, run_root: Path) -> dict:
         "id": dataset_id,
         "command": cmd,
         "prior_mode": prior,
+        "skip_ncv_color": skip_ncv,
         "threads_env": {k: env[k] for k in ("OMP_NUM_THREADS",)},
         "exit_code": proc.returncode,
         "wall_time_s": round(wall, 1),
@@ -254,6 +300,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--ids", nargs="+", default=DEFAULT_IDS)
     p.add_argument("--run-root", default=None,
                    help="default: $BAYSOR_BENCH_DATA/runs/bench-sim-sanity")
+    p.add_argument("--ncv-color", action="store_true",
+                   help="re-enable the NCV colour embedding (default: passed "
+                        "--skip-ncv-color when the binary supports it; the "
+                        "colours are never compared by the benchmark)")
     p.add_argument("--report", default=str(REPORT))
     args = p.parse_args(argv)
     if not args.binary:
@@ -265,7 +315,8 @@ def main(argv: list[str] | None = None) -> int:
     records = []
     for dataset_id in args.ids:
         print(f"== {dataset_id}")
-        rec = run_dataset(dataset_id, args.binary, run_root)
+        rec = run_dataset(dataset_id, args.binary, run_root,
+                          ncv_color=args.ncv_color)
         records.append(rec)
         acc = rec.get("assignment_accuracy_interior", {}).get("accuracy")
         o2o = rec.get("one_to_one_accuracy_interior", {}).get("accuracy")

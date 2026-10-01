@@ -29,6 +29,9 @@ Manifest schema (all keys except ``name``/``datasets``/``expect``/
             celladmix: false            # default true
             celltypes_from: baseline    # optional, default none
             no_ami: true                # skip informational AMI, default false
+            ncv_color: true             # re-enable the NCV colour embedding
+                                        # (default false: runs pass
+                                        #  --skip-ncv-color when supported)
             expect: identical           # identical | same | improved
             baseline: bugfixes-35e8a7e-t1
 
@@ -75,6 +78,7 @@ class Step:
     celladmix: bool
     celltypes_from: Optional[str]
     no_ami: bool
+    ncv_color: bool
     expect: str
     baseline: str
 
@@ -134,6 +138,8 @@ def _step_from(entry: dict, index: int) -> Step:
         celltypes_from=(str(entry["celltypes_from"])
                         if entry.get("celltypes_from") else None),
         no_ami=bool(entry.get("no_ami", False)),
+        # opt-out of the default --skip-ncv-color (colours are never compared)
+        ncv_color=bool(entry.get("ncv_color", False)),
         expect=expect,
         baseline=str(entry["baseline"]),
     )
@@ -323,6 +329,7 @@ def plan_text(suite: Suite, base_run_id: str, selections: dict,
             f"celladmix={'on' if step.celladmix else 'off'} "
             f"celltypes-from={step.celltypes_from or '-'} "
             f"ami={'skipped' if step.no_ami else 'computed'} "
+            f"ncv-color={'on' if step.ncv_color else 'skipped'} "
             f"expect={step.expect} baseline={step.baseline}")
         if ids is not None:
             lines.append(f"    datasets ({len(ids)}): " + ", ".join(ids))

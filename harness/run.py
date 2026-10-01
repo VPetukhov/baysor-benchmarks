@@ -3,7 +3,10 @@
 
 For every selected dataset and replicate this runner
 
-* builds the ``baysor run`` command from the dataset's ``meta.json``,
+* builds the ``baysor run`` command from the dataset's ``meta.json``
+  (passing ``--skip-ncv-color`` by default when the binary supports it —
+  the NCV colour embedding is never compared by the benchmark; ``--ncv-color``
+  re-enables it and the choice is recorded in each replicate's ``run.json``),
 * executes it under ``/usr/bin/time -v`` (wall time, CPU user/system time,
   percent of CPU, peak RSS) with ``OMP_NUM_THREADS`` pinned to ``--threads``,
 * normalizes the segmentation output into ``assignment.parquet``
@@ -80,12 +83,32 @@ def probe_binary(baysor: Path) -> dict:
     }
 
 
+def skip_ncv_color_effective(probe: dict, args) -> bool:
+    """Whether this invocation runs Baysor without the NCV colour embedding.
+
+    Benchmark runs skip the colours by default (they are never compared and
+    cost most of the runtime on small gene panels); ``--ncv-color`` opts out,
+    and a binary whose ``run --help`` does not list ``--skip-ncv-color`` keeps
+    computing colours as before. The effective choice is recorded per
+    replicate in ``run.json`` (``skip_ncv_color``).
+    """
+    if getattr(args, "ncv_color", False):
+        return False
+    return bool((probe or {}).get("flags", {}).get("skip-ncv-color", False))
+
+
 def build_command(baysor: Path, ds: common.Dataset, seg_dir: Path,
-                  probe: dict, repo: Path, scale_factor: float = 1.0) -> list[str]:
+                  probe: dict, repo: Path, scale_factor: float = 1.0,
+                  skip_ncv_color: bool = True) -> list[str]:
     """Assemble the ``baysor run`` command line from ``meta.json``.
 
     ``scale_factor`` multiplies ``baysor.scale_um`` (used to build degraded
     runs for validation; must stay 1.0 for normal benchmark runs).
+
+    ``skip_ncv_color`` (default) adds ``--skip-ncv-color`` so the run does
+    not compute the NCV colour embedding the benchmark never compares; it
+    is only emitted when the binary's help advertises the flag (older
+    binaries keep their previous behaviour).
 
     ``baysor.extra_args`` is appended verbatim after ``-c <config>`` (so the
     dataset's explicit flags override the config); the builder skips any of
@@ -140,6 +163,10 @@ def build_command(baysor: Path, ds: common.Dataset, seg_dir: Path,
         add(("-c", "--config"), cfg_path)
     cmd += extra
 
+    # NCV colours are never compared/hashed by the benchmark: skip them by
+    # default (deduplicated against extra_args, gated on flag support)
+    if skip_ncv_color and probe["flags"].get("skip-ncv-color", False):
+        add(("--skip-ncv-color",))
     if probe["flags"].get("output-style", False):
         add(("--output-style",), "parquet")
     add(("-o", "--output"), seg_dir)
@@ -281,8 +308,10 @@ def run_replicate(ds: common.Dataset, rep: int, rep_dir: Path, baysor: Path,
     """Run one replicate; returns the rep record for metrics.json."""
     seg_dir = rep_dir / "seg"
     seg_dir.mkdir(parents=True, exist_ok=True)
+    skip_ncv = skip_ncv_color_effective(probe, args)
     cmd = build_command(baysor, ds, seg_dir, probe, repo,
-                        scale_factor=args.scale_factor)
+                        scale_factor=args.scale_factor,
+                        skip_ncv_color=skip_ncv)
     full_cmd = ["/usr/bin/time", "-v"] + cmd
     env = os.environ.copy()
     for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
@@ -320,6 +349,8 @@ def run_replicate(ds: common.Dataset, rep: int, rep_dir: Path, baysor: Path,
         "threads": args.threads,
         "binary_sha256": probe["sha256"],
         "scale_factor": args.scale_factor,
+        # effective NCV colour choice (default: skipped; --ncv-color opts out)
+        "skip_ncv_color": skip_ncv,
         "log": "baysor.log",
         "stderr_tail": res["stderr"][-8000:],
     }
@@ -377,9 +408,9 @@ def run_replicate(ds: common.Dataset, rep: int, rep_dir: Path, baysor: Path,
 def reusable_run(prev: dict, probe: dict, args) -> tuple[bool, str]:
     """Whether an existing run.json may be reused by ``--skip-existing``.
 
-    The check is per replicate: status, binary sha256, thread count and
-    scale factor must all match the current invocation, otherwise the
-    replicate is rerun.
+    The check is per replicate: status, binary sha256, thread count, scale
+    factor and the NCV colour choice must all match the current invocation,
+    otherwise the replicate is rerun.
     """
     if prev.get("status") != "ok":
         return False, f"status={prev.get('status')}"
@@ -389,6 +420,12 @@ def reusable_run(prev: dict, probe: dict, args) -> tuple[bool, str]:
         return False, f"threads {prev.get('threads')} != {args.threads}"
     if prev.get("scale_factor") != args.scale_factor:
         return False, f"scale factor {prev.get('scale_factor')} != {args.scale_factor}"
+    want_skip = skip_ncv_color_effective(probe, args)
+    # legacy run.json without the field ran with colours (it predates the
+    # default) -> equivalent to skip_ncv_color == False
+    if bool(prev.get("skip_ncv_color")) != want_skip:
+        return False, (f"skip_ncv_color {prev.get('skip_ncv_color')} "
+                       f"!= {want_skip}")
     return True, ""
 
 
@@ -619,6 +656,7 @@ def _step_args(args, step, run_id: str):
     ns.no_celladmix = (not step.celladmix) or args.no_celladmix
     ns.celltypes_from = args.celltypes_from or step.celltypes_from
     ns.no_ami = args.no_ami or step.no_ami
+    ns.ncv_color = args.ncv_color or step.ncv_color
     return ns
 
 
@@ -627,7 +665,8 @@ def _print_run_plan(args, selected) -> None:
           f"replicates={args.replicates} timeout={args.timeout or 'none'}s "
           f"celladmix={'off' if args.no_celladmix else 'on'} "
           f"celltypes-from={args.celltypes_from or '-'} "
-          f"ami={'skipped' if args.no_ami else 'computed'}")
+          f"ami={'skipped' if args.no_ami else 'computed'} "
+          f"ncv-color={'on' if args.ncv_color else 'skipped'}")
     print(f"datasets ({len(selected)}): "
           + ", ".join(d.id for d in selected))
 
@@ -682,7 +721,8 @@ def run_suite(args, ap, repo: Path, root: Path) -> int:
         print(f"== suite {suite.name} / step {step.name} "
               f"(run-id {step_args.run_id}, threads={step.threads}, "
               f"replicates={step.replicates}, "
-              f"celladmix={'off' if step_args.no_celladmix else 'on'}) ==",
+              f"celladmix={'off' if step_args.no_celladmix else 'on'}, "
+              f"ncv-color={'on' if step_args.ncv_color else 'skipped'}) ==",
               flush=True)
         rc = run_body(step_args, selected, probe, repo, root)
         any_failure = any_failure or rc != 0
@@ -741,6 +781,12 @@ def main(argv: Optional[list[str]] = None) -> int:
                          "run experiments only; default 1.0)")
     ap.add_argument("--skip-existing", action="store_true",
                     help="skip replicates that already have a successful run.json")
+    ap.add_argument("--ncv-color", action="store_true",
+                    help="re-enable the NCV colour embedding (default: skipped "
+                         "via --skip-ncv-color when the binary supports it; the "
+                         "colours are never compared by the benchmark and cost "
+                         "most of the runtime on small gene panels); recorded "
+                         "per replicate in run.json")
     ap.add_argument("--dry-run", action="store_true",
                     help="resolve and print the run plan (datasets, threads, "
                          "replicates, estimated time) without executing Baysor")
@@ -865,7 +911,9 @@ def record_selection(run_root: Path, selected: list, args) -> dict:
         inv = []
     inv.append({"spec": args.datasets, "kind": args.kind,
                 "replicates": args.replicates, "threads": args.threads,
-                "scale_factor": args.scale_factor, "at": common.utc_now()})
+                "scale_factor": args.scale_factor,
+                "ncv_color": bool(getattr(args, "ncv_color", False)),
+                "at": common.utc_now()})
     sel["invocations"] = inv
     common.write_json(sel_path, sel)
     return sel

@@ -93,7 +93,7 @@ $PY harness/compare.py --run-id X --suite regular
 
 * each step = one `run.py` invocation: `datasets` (tier/ids/globs),
   `threads`, `replicates`, `timeout`, `celladmix`, `celltypes_from`,
-  `no_ami`, `expect`, `baseline`;
+  `no_ami`, `ncv_color`, `expect`, `baseline`;
 * steps sharing a `group` write into the same `runs/<id>` folder and are
   compared together; the group holding the suite's `identical` step keeps
   the bare `--run-id` (1-thread output-path-length sensitivity, ≤ 17
@@ -148,7 +148,7 @@ run.py --baysor PATH (--datasets SPEC | --suite NAME) --run-id ID
        [--kind sim|real] [--threads 6] [--replicates 1] [--timeout S]
        [--data-root PATH] [--label SHA] [--no-celladmix] [--no-ami]
        [--skip-existing] [--celltypes-from BASELINE] [--scale-factor F]
-       [--step STEP] [--manifest PATH] [--dry-run]
+       [--ncv-color] [--step STEP] [--manifest PATH] [--dry-run]
 ```
 
 `--suite` reads datasets/threads/replicates/timeout/audit/AMI options per
@@ -187,6 +187,19 @@ when supported; otherwise the legacy `segmentation.csv` is parsed).
 to `N`. `--scale-factor` exists solely to build deliberately degraded runs
 for validation; keep it at 1.0.
 
+**NCV colours are skipped by default.** Every command the runner builds
+passes `--skip-ncv-color` when the binary's help advertises it: the NCV
+(neighbourhood composition) colour embedding is never compared, hashed or
+read by any metric, yet costs 58–76 % of instructions on panels below
+1,000 genes (see `$BAYSOR_BENCH_DATA/profiling/reports/`), so benchmark
+runs skip it. `--ncv-color` (also `bench.sh --ncv-color`, a suite step's
+`ncv_color: true`, or `NCV_COLOR=1` in the shell sanity scripts) re-enables
+the colours; the effective choice is recorded per replicate as
+`run.json.skip_ncv_color` (and in `_selection.json`'s invocation record),
+and comparisons never gate on it — `identical` runs against a coloured
+baseline pass because segmentation is unaffected. Binaries without the
+flag keep computing colours as before.
+
 Each replicate executes under `/usr/bin/time -v` in its own process group
 (killed on `--timeout`) and stores:
 
@@ -200,7 +213,8 @@ $BAYSOR_BENCH_DATA/runs/<run_id>/<dataset>/rep<k>/
     baysor.log               # Baysor's full stdout + stderr (+ /usr/bin/time -v)
     run.json                 # command, exit code, wall time, CPU user/sys/
                              # percent, peak RSS, binary sha256, threads,
-                             # scale factor, version info, --label git SHA
+                             # scale factor, skip_ncv_color (NCV colour
+                             # choice), version info, --label git SHA
     celltypes.parquet        # typing used for the audit (saved or transferred)
     celltypes_transfer.json  # transfer statistics (when typed by transfer)
     celladmix.json           # real datasets only, when the audit exists
@@ -210,10 +224,11 @@ $BAYSOR_BENCH_DATA/runs/<run_id>/<dataset>/metrics.json
 **Provenance.** `metrics.json` records `inputs.molecules_sha256` and
 `inputs.meta_sha256` (the dataset content the run used), plus the binary
 sha256 and label; every rep record carries its own `binary_sha256`,
-`threads`, `scale_factor` and `assignment_sha256`. `--skip-existing` reuses
+`threads`, `scale_factor`, `skip_ncv_color` and `assignment_sha256`.
+`--skip-existing` reuses
 a replicate only when its `run.json` says `status: ok` **and** its binary
-sha256, thread count and scale factor match the current invocation
-(per replicate and dataset); anything else is rerun from a clean rep
+sha256, thread count, scale factor and NCV colour choice match the current
+invocation (per replicate and dataset); anything else is rerun from a clean rep
 directory. Comparisons can therefore rely on run and baseline seeing the
 same `molecules.parquet`.
 
@@ -450,6 +465,30 @@ alone).
   (20 chars) flips the two sensitive datasets; `compare.py` warns about
   this. Filed as a Baysor follow-up.
 
+* **`--skip-ncv-color` itself perturbs 1-thread segmentation on some
+  datasets (found 2026-09-30, `skip-ncv-color` branch).** The flag is
+  consulted only *after* `bmm` finishes (colour embedding runs between
+  segmentation and the save step), yet its mere presence in argv changes
+  the outcome of the same layout-dependent behaviour: on
+  `xenium_pancreas_377_quick` the colours-on command reproduces the
+  `bugfixes-35e8a7e-t1` assignment bitwise (run-ids `con1`/`skc2`, both
+  `2e5d38a4…` = baseline) while `--skip-ncv-color` deterministically
+  produces a different segmentation (`71be20cd…`, 2073 vs 2093 cells at
+  the logged `Segmentation complete`) at run-ids of both 4 and 13
+  characters — flag position in argv is irrelevant (appending it last
+  flips too). Same flip verified for `xenium_breast_rep1_stroma_quick` and
+  `xenium_mouse_brain_ff_quick` (colours-on passes at the run-id where
+  skip fails). Flag-*stable* datasets — verified bitwise with
+  `--skip-ncv-color` against the colour-created baseline:
+  `sim_circles_gaps_g100`, `sim_circles_gaps_g100_noprior`,
+  `strec_dense_s2_disjoint`, `iss_mouse_hippocampus_quick`.
+  **Practical rules:** `identical` comparisons against *colour-created*
+  baselines only hold on flag-stable datasets; recreate baselines under
+  the new default (skip-vs-skip cancels the flag out — skip runs are
+  path-stable across run-id lengths on the flip-prone datasets too) or
+  opt the step out with `ncv_color: true` / `--ncv-color`. Also filed as
+  a Baysor follow-up (same root cause as the path-length sensitivity).
+
 ### Measured noise floor (6 threads, 3 replicates, this binary)
 
 Numbers below are from `recompute_metrics.py` with the current metric
@@ -521,6 +560,11 @@ that must not alter behaviour can be verified exactly:
   1 replicate — each violation fails;
 * for every dataset the `assignment_sha256` recorded per replicate in
   `metrics.json` is compared against the baseline's; any mismatch fails;
+  the hash covers the **segmentation content** — the normalized assignment
+  table (`mol_index`, `cell`, `confidence`) — never Baysor's raw output
+  files, so NCV colour columns/files are not part of identity and runs
+  with/without `--skip-ncv-color` compare cleanly (the report notes the
+  colour choice of each side informationally);
 * on a mismatch the report shows the metric deltas (sim: every metric of
   `sim.mean`; real: `real.rep_agreement` deltas plus pair metrics between
   run rep0 and baseline rep0);

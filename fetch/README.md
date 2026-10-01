@@ -12,7 +12,7 @@ The dataset contract (files, `meta.json`, tiers) is defined in
 | `xenium.py` | argparse CLI: `verify`, `fetch`, `pick`, `build`, `record-hashes`, `report` |
 | `xenium_common.py` | library: partial zip downloads, streaming transcript reads, crop selection, image-prior rasterisation, meta assembly |
 | `download.py` | shared download helper (retries/backoff/Retry-After, Range resume, sha256, atomic rename); also usable by other fetchers |
-| `sanity_run.sh` | run the Release Baysor binary on one dataset (command assembled from `meta.json`), record wall/RSS into `runs/<run_id>/<id>/timing.json` |
+| `sanity_run.sh` | run the Release Baysor binary on one dataset (command assembled from `meta.json`; `--skip-ncv-color` by default, `NCV_COLOR=1` re-enables), record wall/RSS into `runs/<run_id>/<id>/timing.json` |
 | `tests/` | pytest coverage of the non-trivial logic (`conftest.py` hosts the local HTTP server fixture) |
 
 ## Rebuild from scratch
@@ -162,4 +162,5 @@ seek arbitrarily; the 1325x2450 Rep1 frame is 6.5 MB.
   `/usr/bin/time -v`, outputs in `$BAYSOR_BENCH_DATA/runs/sanity_realx/<id>/`).
   The command line is assembled from `meta.json` exactly like the harness
   does it (config, `extra_args`, scale, prior column/image/none, prior
-  confidence), so 3D and image-prior datasets run through the same script.
+  confidence, `--skip-ncv-color` unless `NCV_COLOR=1`), so 3D and image-prior
+  datasets run through the same script.

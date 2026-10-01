@@ -7,8 +7,14 @@
 #            [--preset regular|release|refactor|algorithm | --suite NAME]
 #            [--datasets quick|full|all|<ids/globs>] [--kind sim|real]
 #            [--replicates N] [--threads N] [--run-id ID] [--timeout S]
-#            [--data-root PATH] [--celltypes-from NAME]
+#            [--data-root PATH] [--celltypes-from NAME] [--ncv-color]
 #            [--create-baseline NAME] [--dry-run]
+#
+# --ncv-color: re-enable the NCV colour embedding (default: runs pass
+#            --skip-ncv-color to Baysor when the binary supports it — the
+#            benchmark never compares the colours and they cost most of the
+#            runtime on small gene panels; the choice is recorded in each
+#            replicate's run.json).
 #
 # --create-baseline NAME: instead of comparing, freeze the run as a
 #            baseline under $BAYSOR_BENCH_DATA/baselines/NAME. With a suite
@@ -67,6 +73,7 @@ TIMEOUT=""
 DATA_ROOT=""
 CREATE_BASELINE=""
 CELLTYPES_FROM=""
+NCV_COLOR=0
 DRY_RUN=0
 PY="${BENCH_PY:-}"
 
@@ -106,6 +113,7 @@ while [[ $# -gt 0 ]]; do
     --timeout)          TIMEOUT="$2"; shift 2 ;;
     --data-root)        DATA_ROOT="$2"; shift 2 ;;
     --celltypes-from)   CELLTYPES_FROM="$2"; shift 2 ;;
+    --ncv-color)        NCV_COLOR=1; shift ;;
     --create-baseline)  CREATE_BASELINE="$2"; shift 2 ;;
     --dry-run)          DRY_RUN=1; shift ;;
     -h|--help)          grep '^# ' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -157,6 +165,7 @@ if [[ $DRY_RUN -eq 1 ]]; then
   [[ -n "$KIND" ]]     && RARGS+=(--kind "$KIND")
   [[ -n "$TIMEOUT" ]]  && RARGS+=(--timeout "$TIMEOUT")
   [[ -n "$CELLTYPES_FROM" ]] && RARGS+=(--celltypes-from "$CELLTYPES_FROM")
+  [[ $NCV_COLOR -eq 1 ]]      && RARGS+=(--ncv-color)
   "$PY" "$HERE/run.py" "${RARGS[@]}" "${DARGS[@]}" || exit 2
   if [[ -n "$BASELINE" ]]; then
     "$PY" - "$HERE" "$BASELINE" ${DATA_ROOT:+"$DATA_ROOT"} <<'PYEOF' || exit 2
@@ -179,6 +188,7 @@ if [[ -n "$SUITE" ]]; then
   [[ -n "$KIND" ]]             && ARGS+=(--kind "$KIND")
   [[ -n "$DATA_ROOT" ]]        && ARGS+=(--data-root "$DATA_ROOT")
   [[ -n "$CELLTYPES_FROM" ]]   && ARGS+=(--celltypes-from "$CELLTYPES_FROM")
+  [[ $NCV_COLOR -eq 1 ]]        && ARGS+=(--ncv-color)
 
   echo "== run: suite $SUITE (run-id base $RUN_ID) =="
   "$PY" "$HERE/run.py" "${ARGS[@]}"
@@ -219,6 +229,7 @@ ARGS=(--baysor "$BAYSOR" --datasets "$DATASETS" --run-id "$RUN_ID"
 [[ -n "$TIMEOUT" ]]          && ARGS+=(--timeout "$TIMEOUT")
 [[ -n "$DATA_ROOT" ]]        && ARGS+=(--data-root "$DATA_ROOT")
 [[ -n "$CELLTYPES_FROM" ]]   && ARGS+=(--celltypes-from "$CELLTYPES_FROM")
+[[ $NCV_COLOR -eq 1 ]]        && ARGS+=(--ncv-color)
 
 echo "== run: $RUN_ID (datasets=$DATASETS replicates=$REPLICATES threads=$THREADS expect=$EXPECT) =="
 "$PY" "$HERE/run.py" "${ARGS[@]}"

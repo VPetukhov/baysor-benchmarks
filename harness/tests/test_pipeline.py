@@ -45,11 +45,14 @@ def pipeline(tmp_path_factory):
     baselines = root / "repo_baselines"
     assert baseline.create("p1", "pipe", root, baselines) == 0
     return {"root": root, "baselines": baselines,
-            "sim_dir": sim_dir, "real_dir": real_dir}
+            "sim_dir": sim_dir, "real_dir": real_dir,
+            "supports_ncv": runner.probe_binary(BAYSOR)["flags"].get(
+                "skip-ncv-color", False)}
 
 
 def test_run_outputs(pipeline):
     root = pipeline["root"]
+    supports = pipeline["supports_ncv"]
     for ds in ("sim_pipe", "real_pipe"):
         m = common.read_json(root / "runs" / "p1" / ds / "metrics.json")
         assert m["replicates"] == 3
@@ -65,6 +68,10 @@ def test_run_outputs(pipeline):
             assert rec["wall_s"] > 0
             assert rec["peak_rss_kb"] and rec["peak_rss_kb"] > 0
             assert "-s" in rec["command"]
+            # NCV colours: the choice is recorded and matches the command
+            # (default run: skipped when the binary supports the flag)
+            assert rec["skip_ncv_color"] is supports
+            assert ("--skip-ncv-color" in rec["command"]) is supports
             # Baysor stdout/stderr are kept for auditing, with provenance
             assert (rep / "baysor.log").is_file()
             assert rec["binary_sha256"] == m["binary"]["sha256"]
@@ -120,3 +127,40 @@ def test_degraded_run_fails(pipeline, tmp_path):
         root / "runs" / "p_degraded" / "compare_pipe_same.json")
     failed = {c["metric"] for c in report["checks"] if c["status"] == "fail"}
     assert {"accuracy_1to1", "ari_assigned", "frac_cells_matched"} & failed
+
+
+def test_ncv_color_runs_are_comparable(pipeline):
+    """The default skips the NCV colours, --ncv-color re-enables them, and
+    both choices are recorded in run.json; an `identical` comparison of the
+    colours-on run against a skip-colours baseline passes, i.e. the colour
+    embedding never affects segmentation (or anything a comparison reads)."""
+    root = pipeline["root"]
+    supports = pipeline["supports_ncv"]
+    base_args = ["--baysor", str(BAYSOR), "--datasets", "quick",
+                 "--threads", "1", "--replicates", "1",
+                 "--data-root", str(root)]
+    assert runner.main(base_args + ["--run-id", "pcol0"]) == 0   # default skip
+    assert runner.main(base_args + ["--ncv-color", "--run-id", "pcol1"]) == 0
+    for rid, want in (("pcol0", supports), ("pcol1", False)):
+        for ds in ("sim_pipe", "real_pipe"):
+            rec = common.read_json(
+                root / "runs" / rid / ds / "rep0" / "run.json")
+            assert rec["skip_ncv_color"] is want, (rid, ds)
+            assert ("--skip-ncv-color" in rec["command"]) is want
+    # identical baseline from the skip-colours run vs the colours-on run
+    ncv_baselines = root / "ncv_baselines"
+    assert baseline.create("pcol0", "ncvpipe", root, ncv_baselines,
+                           allow_incomplete=True, force=True,
+                           identical=True) == 0
+    rc = compare.main(["--run-id", "pcol1", "--baseline", "ncvpipe",
+                       "--expect", "identical",
+                       "--data-root", str(root),
+                       "--baselines-dir", str(ncv_baselines)])
+    assert rc == 0
+    report = common.read_json(
+        root / "runs" / "pcol1" / "compare_ncvpipe_identical.json")
+    assert report["summary"]["pass_overall"] is True
+    # the report notes the colour choice of both sides informationally
+    if supports:
+        assert report["meta"]["ncv colour (baseline)"].startswith("skipped")
+    assert report["meta"]["ncv colour (run)"] == "computed"
