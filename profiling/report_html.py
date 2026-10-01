@@ -22,9 +22,9 @@ directory, and to github.com.
 Narrative text comes from an optional notes file (Markdown subset:
 headings, paragraphs, lists, tables, `code`, **bold**, links), split into
 sections by lines `<!-- section: ID -->`; each ID is rendered at its place
-in the report (ids: summary, bottlenecks_top, where_time, area_ncv, area_bmm,
-area_clustering, area_memory, area_threading, threads, scaling, memory,
-bottlenecks, next_steps, method). Every number in the generated tables and
+in the report (ids: subtitle, summary, bottlenecks_top, where_time, area_ncv,
+area_bmm, area_clustering, area_memory, area_threading, threads, scaling,
+memory, bottlenecks, next_steps, method). Every number in the generated tables and
 charts comes from the summary files.
 """
 from __future__ import annotations
@@ -656,7 +656,7 @@ class Report:
 <div class="kicker">Baysor · CPU &amp; memory profile · before / after</div>
 <h1>Where Baysor spends CPU and memory after the optimizations</h1>
 <p class="sub"><code>perf-optimization</code> @ <strong>{esc(sha_a)}</strong>
-(own thread pool + NCV, BMM, clustering and memory optimizations) vs. the
+({md_inline(self.notes.get("raw:subtitle") or "own thread pool + NCV, BMM, clustering and memory optimizations")}) vs. the
 pre-optimization profile @ <strong>{esc(sha_b)}</strong>
 ({esc((mb.get('started') or '')[:10])}). Host {esc(ma.get('cpu') or mb.get('cpu'))},
 {esc(ma.get('nproc'))} logical CPUs, shared. Generated {dt.datetime.utcnow():%Y-%m-%d %H:%M} UTC by
@@ -819,7 +819,7 @@ pre-optimization profile @ <strong>{esc(sha_b)}</strong>
                          fmt(pa and 100 * pa["serial_frac"], 1), fmt(pb and 100 * pb["serial_frac"], 1),
                          fmt(na and na["cpu_s_median"], 2), fmt(nb and nb["cpu_s_median"], 2)])
         return table(["dataset", "G Ir before", "after", "Δ", "speed-up", "% of run before", "after",
-                      "serial % before", "after", "CPU s before (native 1 thr)", "after"], rows, raw=True,
+                      "serial % before", "after", "CPU s before (native 1 thr, load-sens.)", "after"], rows, raw=True,
                      num_cols=range(1, 11), caption=f"Phase <code>{phase}</code>, 1 thread")
 
     def scaling_phase_rows(self, phase, datasets, thr=8):
@@ -910,7 +910,7 @@ pre-optimization profile @ <strong>{esc(sha_b)}</strong>
             pb, px, pa = self.BS.phase(ds, 8, "ncv_colors"), XS.phase(ds, 8, "ncv_colors"), self.AS.phase(ds, 8, "ncv_colors")
             rows.append([code(f"{ds} 8 thr (CPU s)"), "", "", "", fmt(pb and pb["cpu_s"], 0), fmt(px and px["cpu_s"], 0),
                          fmt(pa and pa["cpu_s"], 0)])
-        return table(["dataset", "G Ir before", f"with {esc(lab)}", "now", "CPU s before (native 1 thr)",
+        return table(["dataset", "G Ir before", f"with {esc(lab)}", "now", "CPU s before (native 1 thr, load-sens.)",
                       f"with {esc(lab)}", "now"], rows, raw=True, num_cols=range(1, 7),
                      caption=f"Phase <code>ncv_colors</code>: before, with {esc(lab)}, and now")
 

@@ -346,11 +346,18 @@ absolute difference).
 #   summary-report-run/  summary-quick-run/  summary-scaling-run/  (+ compare-*.txt/csv)
 $PY profiling/report_html.py --before .bench-data/profiling/reports/<date>-<shaA> \
     --after .bench-data/profiling/reports/<date>-<shaB> \
-    [--notes <after>/notes.md] [--md <after>/REPORT.md]     # -> <after>/report.html
+    [--notes <after>/notes.md] [--md <after>/REPORT.md] \
+    [--extra "LABEL=<report dir of an intermediate commit>"]   # -> <after>/report.html
 ```
 
 One self-contained file (inline CSS, charts as inline SVG with hover
 tooltips, a few lines of JS for sortable tables and tabs; no network). The
 numbers come from the summary files; narrative text (findings, ranked
 bottlenecks, next steps) from the optional notes file, a Markdown subset
-split by `<!-- section: ID -->` lines (ids in `report_html.py --help`).
+split by `<!-- section: ID -->` lines (ids in `report_html.py --help`;
+`subtitle` replaces the one-line description of the profiled commit in the
+header). `--extra` adds an intermediate commit's report directory next to
+before/after in the NCV-colour section (e.g. a reverted optimisation). When the
+"before" report predates `scaling_parallel.csv`, a re-summary of its scaling run
+(`scaling.py summarize <run> --out ...`) can be placed next to the new report as
+`before-scaling_parallel.csv`.
