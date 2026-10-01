@@ -109,18 +109,33 @@ def expand_suite(spec: dict, suite: str, only_tools, only_datasets) -> list[Job]
     return out
 
 
+# Environment variables recorded in job.json (threading of OpenMP builds and
+# of Baysor's own thread pool, include/baysor/utils/thread_pool.h).
+ENV_KEYS = ("OMP_NUM_THREADS", "OMP_WAIT_POLICY", "BAYSOR_NUM_THREADS", "BAYSOR_POOL_SPIN_US")
+
+
 def thread_env(threads: int, valgrind: bool, wait_policy: str = "") -> dict:
+    """Thread count and wait policy for OpenMP builds (libgomp) and for
+    builds with Baysor's own pool (BAYSOR_NUM_THREADS, BAYSOR_POOL_SPIN_US).
+    Each build ignores the other's variables."""
     env = os.environ.copy()
     for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
-                "NUMEXPR_NUM_THREADS"):
+                "NUMEXPR_NUM_THREADS", "BAYSOR_NUM_THREADS"):
         env[var] = str(threads)
     env.pop("OMP_WAIT_POLICY", None)
+    env.pop("BAYSOR_POOL_SPIN_US", None)
     if valgrind:
         # Valgrind serializes threads: spinning workers would burn simulated
-        # instructions while the thread holding the work is descheduled
+        # instructions while the thread holding the work is descheduled.
+        # OpenMP builds: passive wait policy. Pool builds: no spin phase
+        # before blocking (the pool's spin is bounded by a wall-clock
+        # deadline, so its instruction count would depend on host timing).
         env["OMP_WAIT_POLICY"] = "passive"
+        env["BAYSOR_POOL_SPIN_US"] = "0"
     elif wait_policy:
         env["OMP_WAIT_POLICY"] = wait_policy
+        if wait_policy == "passive":
+            env["BAYSOR_POOL_SPIN_US"] = "0"   # the pool's equivalent of passive waiting
     return env
 
 
@@ -183,7 +198,7 @@ def run_native_job(job: Job, jd: Path, baysor: Path, ds_dir: Path, probe, hrun, 
         shutil.rmtree(rd / "seg", ignore_errors=True)
     ok = all(r["exit_code"] == 0 for r in reps)
     return {"status": "ok" if ok else "failed", "reps": reps,
-            "command": cmd, "env": {k: env.get(k) for k in ("OMP_NUM_THREADS", "OMP_WAIT_POLICY")}}
+            "command": cmd, "env": {k: env.get(k) for k in ENV_KEYS if k in env}}
 
 
 def run_valgrind_job(job: Job, jd: Path, baysor: Path, ds_dir: Path, probe, hrun, hcommon,
@@ -202,7 +217,7 @@ def run_valgrind_job(job: Job, jd: Path, baysor: Path, ds_dir: Path, probe, hrun
     res.pop("samples", None)
     return {"status": "ok" if res["exit_code"] == 0 else "failed",
             "command": vg + cmd,
-            "env": {k: env.get(k) for k in ("OMP_NUM_THREADS", "OMP_WAIT_POLICY")},
+            "env": {k: env.get(k) for k in ENV_KEYS if k in env},
             **{k: res[k] for k in ("exit_code", "wall_s", "cpu_s", "peak_rss_kb",
                                    "loadavg_start", "loadavg_end", "t_start", "t_end")}}
 

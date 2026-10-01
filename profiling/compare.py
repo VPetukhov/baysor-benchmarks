@@ -4,6 +4,15 @@
     python profiling/compare.py RUN_A RUN_B [--jobs PATTERN]
         [--top 15] [--min-pct 0.5] [--csv out.csv]
 
+With --match name, functions are matched by their short name instead of the
+full demangled signature (across commits whose signatures changed).
+
+    python profiling/compare.py SCALING_A SCALING_B [--csv out.csv]
+
+with two scaling-tier runs (directories with scaling_summary.json, or the
+run directories) compares per job CPU seconds, wall and peak RSS, per phase
+CPU seconds and peak RSS, and the scaling exponents (scaling_fits.csv).
+
 RUN_A / RUN_B are run directories (or their summary/ subdirectories);
 summaries are created with summarize.py first if missing. For every job
 present in both runs it prints:
@@ -28,6 +37,95 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import profcommon as common  # noqa: E402
+
+
+def scaling_dir(p: str):
+    d = Path(p).resolve()
+    for c in (d, d / "summary"):
+        if (c / "scaling_summary.json").is_file():
+            return c
+    return None
+
+
+def read_csv(path: Path) -> list:
+    if not path.is_file():
+        return []
+    with open(path, newline="") as fh:
+        return list(csv.DictReader(fh))
+
+
+def fnum(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def compare_scaling(da: Path, db: Path, csv_out=None) -> int:
+    """Scaling tier: per job CPU s / wall / peak RSS, per phase CPU s / RSS,
+    exponents before/after."""
+    print(f"A: {da}\nB: {db}\n")
+    rows = []
+    ja = {r["job"]: r for r in read_csv(da / "scaling_jobs.csv") if r.get("ok") == "True"}
+    jb = {r["job"]: r for r in read_csv(db / "scaling_jobs.csv") if r.get("ok") == "True"}
+    jobs = [j for j in ja if j in jb]
+    print(f"{len(jobs)} common jobs (CPU s and RSS load-robust, wall load-sensitive)")
+    print(f"   {'job':36s} {'CPU s A':>9s} {'CPU s B':>9s} {'delta':>9s} {'wall A':>8s} {'wall B':>8s} "
+          f"{'delta':>9s} {'RSS GiB A':>9s} {'RSS GiB B':>9s} {'delta':>9s}  load A/B")
+    for j in sorted(jobs, key=lambda j: (ja[j]["tool"], ja[j]["dataset"].split("_")[0], int(ja[j]["threads"]),
+                                         int(ja[j]["molecules"]))):
+        a, b = ja[j], jb[j]
+        vals = {k: (fnum(a.get(k)), fnum(b.get(k))) for k in ("cpu_s", "wall_s", "peak_rss_kb")}
+        la = (a.get("loadavg_start") or "").strip("[]").split(",")[0]
+        lb = (b.get("loadavg_start") or "").strip("[]").split(",")[0]
+        print(f"   {j:36s} {vals['cpu_s'][0] or 0:9.0f} {vals['cpu_s'][1] or 0:9.0f} "
+              f"{fmt_pct(pct(*vals['cpu_s'])):>9s} {vals['wall_s'][0] or 0:8.0f} {vals['wall_s'][1] or 0:8.0f} "
+              f"{fmt_pct(pct(*vals['wall_s'])):>9s} {(vals['peak_rss_kb'][0] or 0) / 2**20:9.2f} "
+              f"{(vals['peak_rss_kb'][1] or 0) / 2**20:9.2f} {fmt_pct(pct(*vals['peak_rss_kb'])):>9s}  {la}/{lb}")
+        for k, (x, y) in vals.items():
+            rows.append({"job": j, "kind": "scaling_job", "name": k, "a": x, "b": y, "delta_pct": pct(x, y)})
+    pa = {(r["dataset"], r["threads"], r["phase"]): r for r in read_csv(da / "scaling_phases.csv")
+          if r["tool"] == "gperf"}
+    pb = {(r["dataset"], r["threads"], r["phase"]): r for r in read_csv(db / "scaling_phases.csv")
+          if r["tool"] == "gperf"}
+    print(f"\nper phase (gperf jobs; CPU s from /proc samples aligned with the log):")
+    print(f"   {'dataset':24s} {'thr':>3s} {'phase':24s} {'CPU s A':>9s} {'CPU s B':>9s} {'delta':>9s} "
+          f"{'RSS GiB A':>9s} {'RSS GiB B':>9s}")
+    for k in sorted(set(pa) & set(pb)):
+        a, b = pa[k], pb[k]
+        ca, cb = fnum(a["cpu_s"]), fnum(b["cpu_s"])
+        ra, rb = fnum(a.get("rss_peak_kb")), fnum(b.get("rss_peak_kb"))
+        if max(ca or 0, cb or 0) >= 1.0:
+            print(f"   {k[0]:24s} {k[1]:>3s} {k[2]:24s} {ca or 0:9.1f} {cb or 0:9.1f} {fmt_pct(pct(ca, cb)):>9s} "
+                  f"{(ra or 0) / 2**20:9.2f} {(rb or 0) / 2**20:9.2f}")
+        job = f"gperf-{k[0]}-t{k[1]}"
+        rows.append({"job": job, "kind": "scaling_phase_cpu", "name": k[2], "a": ca, "b": cb,
+                     "delta_pct": pct(ca, cb)})
+        rows.append({"job": job, "kind": "scaling_phase_rss", "name": k[2], "a": ra, "b": rb,
+                     "delta_pct": pct(ra, rb)})
+    fa = {(r["slide"], r["threads"], r["what"], r["name"]): r for r in read_csv(da / "scaling_fits.csv")
+          if r["what"] in ("total", "phase_cpu", "phase_rss")}
+    fb = {(r["slide"], r["threads"], r["what"], r["name"]): r for r in read_csv(db / "scaling_fits.csv")
+          if r["what"] in ("total", "phase_cpu", "phase_rss")}
+    print(f"\nexponents (log-log slope vs molecules; >= 1.15 super-linear):")
+    print(f"   {'slide':10s} {'thr':>3s} {'what':10s} {'name':24s} {'A':>7s} {'B':>7s}")
+    for k in sorted(set(fa) | set(fb)):
+        ea = fnum(fa.get(k, {}).get("exponent"))
+        eb = fnum(fb.get(k, {}).get("exponent"))
+        if ea is None and eb is None:
+            continue
+        mark = " super-linear" if (eb or 0) >= 1.15 else ""
+        print(f"   {k[0]:10s} {k[1]:>3s} {k[2]:10s} {k[3]:24s} "
+              f"{'' if ea is None else f'{ea:7.2f}':>7s} {'' if eb is None else f'{eb:7.2f}':>7s}{mark}")
+        rows.append({"job": f"{k[0]}-t{k[1]}", "kind": f"exponent_{k[2]}", "name": k[3], "a": ea, "b": eb,
+                     "delta_pct": None if ea is None or eb is None else round(eb - ea, 3)})
+    if csv_out:
+        with open(csv_out, "w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=["job", "kind", "name", "a", "b", "delta_pct"])
+            w.writeheader()
+            w.writerows(rows)
+        print(f"wrote {csv_out} (for exponent rows delta_pct is the absolute exponent difference)")
+    return 0
 
 
 def summary_dir(p: str) -> Path:
@@ -73,7 +171,13 @@ def main(argv=None) -> int:
     ap.add_argument("--min-pct", type=float, default=0.5,
                     help="only functions with >= this %% of total Ir in A or B")
     ap.add_argument("--csv", default=None, help="write all deltas to this CSV")
+    ap.add_argument("--match", choices=("fn", "name"), default="fn",
+                    help="match functions by full signature (fn, default) or short name "
+                         "(name: across commits whose signatures changed)")
     args = ap.parse_args(argv)
+    sca, scb = scaling_dir(args.run_a), scaling_dir(args.run_b)
+    if sca and scb:
+        return compare_scaling(sca, scb, args.csv)
 
     da, db = summary_dir(args.run_a), summary_dir(args.run_b)
     sa, sb = common.read_json(da / "summary.json"), common.read_json(db / "summary.json")
@@ -103,8 +207,9 @@ def main(argv=None) -> int:
                       f"{pa.get(n, {}).get('pct', 0):6.2f} {pb.get(n, {}).get('pct', 0):6.2f}")
                 rows.append({"job": jid, "kind": "phase", "name": n, "a": a, "b": b,
                              "delta_pct": pct(a, b)})
-            fa = {r["fn"]: r for r in ca["top_self"] + ca["top_incl"]}
-            fb = {r["fn"]: r for r in cb["top_self"] + cb["top_incl"]}
+            key = args.match
+            fa = {r[key]: r for r in ca["top_self"] + ca["top_incl"]}
+            fb = {r[key]: r for r in cb["top_self"] + cb["top_incl"]}
             fns = [f for f in dict.fromkeys(list(fa) + list(fb))
                    if max(fa.get(f, {}).get("self_pct", 0), fb.get(f, {}).get("self_pct", 0),
                           fa.get(f, {}).get("incl_pct", 0), fb.get(f, {}).get("incl_pct", 0))

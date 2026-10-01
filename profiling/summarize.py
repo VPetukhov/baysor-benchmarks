@@ -44,7 +44,9 @@ REPO = common.repo_root()
 TOP_N = 60
 ENTRY_FNS = re.compile(r"^(\(below main\)|main|__libc_start_main.*|__libc_start_call_main|"
                        r"0x[0-9a-f]+|cmd_run\(.*|auto cmd_run\(.*|_start|"
-                       r"GOMP_parallel|start_thread|clone3?|gomp_thread_start)$")
+                       r"GOMP_parallel|start_thread|clone3?|gomp_thread_start|"
+                       r"std::thread::_State_impl<.*baysor::\(anonymous namespace\)::ThreadPool.*>::_M_run\(\)|"
+                       r"baysor::\(anonymous namespace\)::ThreadPool::worker_loop.*)$")
 SYSTEM_HDR = re.compile(r"(intrin\.h|/include/c\+\+/|/bits/|xmmintrin|emmintrin)")
 ALLOC_FRAME = re.compile(r"(\bmalloc\b|\bcalloc\b|\brealloc\b|operator new|"
                          r"memalign|posix_memalign|aligned_alloc|"
@@ -78,9 +80,36 @@ def strip_templates(s: str) -> str:
     return "".join(out)
 
 
+POOL_KIND_SUFFIX = ((cgparse.POOL_CHUNK_PREFIX, ".pool_chunk"), (cgparse.POOL_BODY_PREFIX, ".pool_region"),
+                    (cgparse.POOL_SINGLE_PREFIX, ".pool_single"))
+
+
+@lru_cache(maxsize=None)
+def pool_parent(fn: str):
+    """Short name of the function that encloses the user callable of a pool
+    handler (chunk / region body / single block), e.g. 'baysor::apply_phase'
+    for a ParallelRegion::for_each loop inside apply_phase; None otherwise."""
+    if not any(fn.startswith(p) for p, _ in POOL_KIND_SUFFIX):
+        return None
+    r = cgparse.pool_callable(re.sub(r"\s*\[clone [^\]]+\]$", "", fn))
+    return short_name(r[0]) if r else None
+
+
 @lru_cache(maxsize=None)
 def short_name(fn: str) -> str:
-    """'void ns::f<int>(int) [clone ._omp_fn.0]' -> 'ns::f._omp_fn.0'."""
+    """'void ns::f<int>(int) [clone ._omp_fn.0]' -> 'ns::f._omp_fn.0'.
+
+    Pool handlers: 'std::_Function_handler<void (long, long, int),
+    ParallelRegion::for_each<ns::f(...)::{lambda(int)#2}>(...)::{lambda(...)#1}>::_M_invoke'
+    -> 'ns::f::{lambda#2}.pool_chunk' (.pool_region: persistent-region body,
+    .pool_single: single block)."""
+    for prefix, suffix in POOL_KIND_SUFFIX:
+        if fn.startswith(prefix) and "::_M_invoke(" in fn:
+            m = re.search(r"\[clone (\.[^\]]+)\]$", fn)
+            r = cgparse.pool_callable(fn[:m.start()].strip() if m else fn)
+            if r:
+                return (short_name(r[0]) + (f"::{{lambda#{r[1]}}}" if r[1] else "") + suffix
+                        + (m.group(1) if m else ""))
     fn = fn.replace("(anonymous namespace)", "{anon}")
     clone = ""
     m = re.search(r"\[clone (\.[^\]]+)\]", fn)
@@ -177,6 +206,24 @@ def summarize_callgrind(job_dir: Path, phases_spec: list, top_callers: list) -> 
     def parent_of(region: str) -> str:
         return re.sub(r"\s*\[clone \._omp_fn\.\d+\]$", "", region)
 
+    def is_entry(a: str, b: str) -> bool:
+        """Arc a -> b enters a parallel-region body: an OpenMP outlined
+        function entered from the runtime, or a pool chunk (see cgparse)."""
+        return ((cgparse.is_omp_fn(b) and not cgparse.is_omp_fn(a))
+                or (cgparse.is_pool_chunk(b) and not cgparse.is_pool_chunk(a)))
+
+    def expand(seen: set, stack: list, succ: dict) -> None:
+        # runtime nodes (GOMP_*, the pool's machinery) are not expanded:
+        # they connect every region with every caller
+        while stack:
+            f = stack.pop()
+            if f.startswith("GOMP_") or cgparse.is_pool_runtime(f):
+                continue
+            for g in succ.get(f, []):
+                if g not in seen:
+                    seen.add(g)
+                    stack.append(g)
+
     phase_rows = defaultdict(lambda: {"Ir": 0, "main_Ir": 0, "workers_Ir": 0,
                                       "par_main_Ir": 0, "par_workers_Ir": 0,
                                       "per_thread": defaultdict(int), "n_parts": 0})
@@ -213,15 +260,25 @@ def summarize_callgrind(job_dir: Path, phases_spec: list, top_callers: list) -> 
         reach = {}
         for name, fns in ph_fns.items():
             seen, stack = set(fns), list(fns)
-            while stack:
-                f = stack.pop()
-                if f.startswith("GOMP_"):
-                    continue
-                for g in succ.get(f, []):
-                    if g not in seen:
-                        seen.add(g)
-                        stack.append(g)
+            expand(seen, stack, succ)
             reach[name] = seen
+        # pool handlers are called from the pool's machinery, which is not
+        # expanded: link each handler to the phase that reaches the function
+        # enclosing its lambda (by short name; repeated for nested regions)
+        handlers = sorted({b for (a, b) in main.arcs if pool_parent(b) is not None})
+        if handlers:
+            for name, seen in reach.items():
+                shorts = {short_name(f) for f in seen}
+                changed = True
+                while changed:
+                    changed = False
+                    for h in handlers:
+                        if h not in seen and pool_parent(h) in shorts:
+                            seen.add(h)
+                            before = set(seen)
+                            expand(seen, [h], succ)
+                            shorts |= {short_name(f) for f in seen - before} | {short_name(h)}
+                            changed = True
         if ph_cost:
             main_phase = max(ph_cost, key=ph_cost.get)
         else:
@@ -243,9 +300,9 @@ def summarize_callgrind(job_dir: Path, phases_spec: list, top_callers: list) -> 
             last_phase = main_phase
         # main-thread parallel regions of this part
         for (a, b), (_, c) in main.arcs.items():
-            if not (cgparse.is_omp_fn(b) and not cgparse.is_omp_fn(a)) or not c[IR]:
+            if not is_entry(a, b) or not c[IR]:
                 continue
-            par = parent_of(b)
+            par = b if cgparse.is_pool_chunk(b) else parent_of(b)
             owners = [n for n, rs in reach.items() if par in rs]
             if len(owners) > 1:
                 ambiguous.add(short_name(b))
@@ -264,9 +321,11 @@ def summarize_callgrind(job_dir: Path, phases_spec: list, top_callers: list) -> 
     for t, wa in sorted(workers.items()):
         tot_t = wa.totals[IR]
         in_regions = 0
+        pool_thread = False
         for (a, b), (_, c) in wa.arcs.items():
-            if not (cgparse.is_omp_fn(b) and not cgparse.is_omp_fn(a)) or not c[IR]:
+            if not is_entry(a, b) or not c[IR]:
                 continue
+            pool_thread = pool_thread or cgparse.is_pool_chunk(b)
             in_regions += c[IR]
             split = region_main.get(b)
             if not split:
@@ -278,7 +337,10 @@ def summarize_callgrind(job_dir: Path, phases_spec: list, top_callers: list) -> 
                 r["per_thread"][t] += v
         rest = tot_t - in_regions
         if rest > 0:
-            label = "omp_worker_runtime" if in_regions else "other_threads"
+            # pool workers: hand-off/barrier waits and replicated code of
+            # persistent-region bodies outside the work-shared loops
+            label = (("pool_worker_runtime" if pool_thread else "omp_worker_runtime")
+                     if in_regions else "other_threads")
             r = add(label, Ir=rest, workers_Ir=rest)
             r["per_thread"][t] += rest
     for r in phase_rows.values():
@@ -344,6 +406,8 @@ def summarize_callgrind(job_dir: Path, phases_spec: list, top_callers: list) -> 
             "calls": calls.get(fn, 0),
             "omp_region": cgparse.is_omp_fn(fn),
         }
+        if cgparse.is_pool_chunk(fn):
+            rec["pool_chunk"] = True
         if "D1mr" in ev_idx:
             g = lambda v, e: v[ev_idx[e]] if e in ev_idx else 0  # noqa: E731
             d_acc = g(s, "Dr") + g(s, "Dw")
@@ -390,7 +454,7 @@ def summarize_callgrind(job_dir: Path, phases_spec: list, top_callers: list) -> 
     region_calls = defaultdict(int)
     for p in profs:
         for (a, b), (n, c) in p.arcs.items():
-            if cgparse.is_omp_fn(b) and not cgparse.is_omp_fn(a):
+            if is_entry(a, b):
                 regions[b][p.thread] += c[IR]
                 if p.thread == 1:
                     region_calls[b] += n
@@ -400,13 +464,16 @@ def summarize_callgrind(job_dir: Path, phases_spec: list, top_callers: list) -> 
         tot = sum(vals)
         n_thr = len(thread_ids)
         mean_all = tot / max(1, n_thr)
-        omp_regions.append({
+        rec = {
             "region": short_name(fn), "fn": fn, "Ir": tot,
             "pct": round(100.0 * tot / total, 3), "calls_main": region_calls.get(fn, 0),
             "per_thread": {str(k): v for k, v in sorted(per.items())},
             "n_threads_active": sum(1 for v in vals if v > 0),
             "max_over_mean": round(max(vals) / mean_all, 3) if mean_all else None,
-        })
+        }
+        if cgparse.is_pool_chunk(fn):
+            rec["kind"] = "pool"
+        omp_regions.append(rec)
     omp_regions.sort(key=lambda r: -r["Ir"])
 
     threads_tot = defaultdict(int)
@@ -432,10 +499,32 @@ def summarize_callgrind(job_dir: Path, phases_spec: list, top_callers: list) -> 
         "cache_top_LL": cache_top, "cache_top_D1": cache_top_d1,
         "cache_desc": [d for d in profs[0].header.get("desc", []) if "cache" in d],
         "omp_regions": omp_regions,
-        "nested_parallel": agg.omp_split()["nested"],
+        "nested_parallel": agg.omp_split()["nested"] + pool_nested(agg),
         "regions_in_several_phases": shared_parts,
         "trigger_callers": trig_callers,
     }
+
+
+def pool_nested(agg) -> list:
+    """Pool chunks that call into the pool again (nested parallel calls run
+    serially inline; their chunk cost is then also inside the outer chunk)."""
+    callees = agg.callees()
+    out = []
+    for f in {b for (_, b) in agg.arcs if cgparse.is_pool_chunk(b)}:
+        seen, stack = {f}, [f]
+        hit = False
+        while stack and not hit:
+            g = stack.pop()
+            for h, _, _ in callees.get(g, []):
+                if cgparse.POOL_ENTRY_RE.match(h):
+                    hit = True
+                    break
+                if h not in seen and not cgparse.is_pool_runtime(h):
+                    seen.add(h)
+                    stack.append(h)
+        if hit:
+            out.append(f)
+    return sorted(out)
 
 
 # ---------------------------------------------------------------------------
@@ -653,10 +742,13 @@ def main(argv=None) -> int:
     ap.add_argument("run_dir")
     ap.add_argument("--spec", default=str(HERE / "profiling.yaml"))
     ap.add_argument("--jobs", type=int, default=8)
+    ap.add_argument("--out", default=None,
+                    help="output directory (default <run_dir>/summary); e.g. to re-summarize "
+                         "an old run without overwriting its summary")
     args = ap.parse_args(argv)
     run_dir = Path(args.run_dir).resolve()
     spec = common.load_spec(Path(args.spec))
-    out = run_dir / "summary"
+    out = Path(args.out).resolve() if args.out else run_dir / "summary"
     (out / "callgrind").mkdir(parents=True, exist_ok=True)
     (out / "dhat").mkdir(parents=True, exist_ok=True)
 

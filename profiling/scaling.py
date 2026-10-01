@@ -132,9 +132,11 @@ def proftools_prefix(cli: str | None) -> Path:
 
 def base_env(threads: int) -> dict:
     env = os.environ.copy()
-    for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+    for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS",
+                "BAYSOR_NUM_THREADS"):
         env[var] = str(threads)
     env.pop("OMP_WAIT_POLICY", None)
+    env.pop("BAYSOR_POOL_SPIN_US", None)   # native jobs: the pool's default spin-then-block
     return env
 
 
@@ -160,7 +162,8 @@ def run_job(j: SJob, jd: Path, ds_dir: Path, ctx: dict) -> dict:
         spec_q = common.load_spec(ctx["spec_path"])
         qjob = qp.Job(tool="callgrind", dataset=j.dataset, threads=j.threads)
         full = qp.valgrind_args(qjob, jd, spec_q, ctx["valgrind"]) + cmd
-        env["OMP_WAIT_POLICY"] = "passive"
+        env["OMP_WAIT_POLICY"] = "passive"    # as profile.thread_env(valgrind=True)
+        env["BAYSOR_POOL_SPIN_US"] = "0"
         interval = 10.0
     else:
         raise ValueError(j.tool)
@@ -170,12 +173,13 @@ def run_job(j: SJob, jd: Path, ds_dir: Path, ctx: dict) -> dict:
     shutil.rmtree(jd / "seg", ignore_errors=True)
     out = {"status": "ok" if res["exit_code"] == 0 else "failed", "command": full,
            "env": {k: env.get(k) for k in ("OMP_NUM_THREADS", "OMP_WAIT_POLICY", "LD_PRELOAD",
-                                           "CPUPROFILE_FREQUENCY", "TCMALLOC_STACKTRACE_METHOD")},
+                                           "CPUPROFILE_FREQUENCY", "TCMALLOC_STACKTRACE_METHOD",
+                                           "BAYSOR_NUM_THREADS", "BAYSOR_POOL_SPIN_US")},
            **{k: res[k] for k in ("exit_code", "wall_s", "cpu_s", "cpu_user_s", "cpu_sys_s",
                                   "peak_rss_kb", "loadavg_start", "loadavg_end", "t_start", "t_end")}}
     if out["status"] == "ok" and j.tool == "gperf":
         prof = jd / "cpu.prof"
-        g = gperf.summarize(prof, top=80)
+        g = gperf.summarize(prof, top=80, phases=common.load_spec(ctx["spec_path"])["phases"])
         common.write_json(jd / "gperf.json", g)
         out["gperf_samples"] = g["total_samples"]
     if out["status"] == "ok" and j.tool == "heaptrack":
@@ -373,9 +377,9 @@ def short(fn: str) -> str:
     return qs.short_name(fn)
 
 
-def summarize_run(run_dir: Path, spec_path: Path, top_fns: int = 15) -> dict:
+def summarize_run(run_dir: Path, spec_path: Path, top_fns: int = 15, out: Path | None = None) -> dict:
     import csv
-    out = run_dir / "summary"
+    out = out or run_dir / "summary"
     out.mkdir(parents=True, exist_ok=True)
     rows = []
     for jd in sorted((run_dir / "raw").iterdir()):
@@ -395,6 +399,8 @@ def summarize_run(run_dir: Path, spec_path: Path, top_fns: int = 15) -> dict:
             g = common.read_json(jd / "gperf.json")
             rec["gperf"] = {"total_samples": g["total_samples"], "period_us": g["period_us"],
                             "excl": g["excl_all"], "incl": g["incl_all"]}
+            if "classes" in g:
+                rec["gperf"]["classes"] = g["classes"]
         rows.append(rec)
     good = [r for r in rows if r.get("ok")]
     # slide of each dataset
@@ -539,6 +545,9 @@ def summarize_run(run_dir: Path, spec_path: Path, top_fns: int = 15) -> dict:
     wcsv(out / "scaling_phases.csv", phase_rows)
     wcsv(out / "scaling_fits.csv", fits)
     wcsv(out / "scaling_xcheck.csv", xcheck)
+    par_rows = parallel_rows(good)
+    if par_rows:
+        wcsv(out / "scaling_parallel.csv", par_rows)
     wcsv(out / "scaling_heaptrack.csv", [{**{k: v for k, v in h.items() if not k.startswith("heaptrack_top")}}
                                          for h in heap])
     try:
@@ -550,15 +559,63 @@ def summarize_run(run_dir: Path, spec_path: Path, top_fns: int = 15) -> dict:
     return summary
 
 
-OMP_WAIT_RE = re.compile(r"^(gomp_\w*(barrier|wait|spin)\w*|do_wait|do_spin|futex_wait)")
+OMP_WAIT_RE = gperf.OMP_WAIT_RE
 
 
 def omp_wait_share(g: dict) -> float | None:
-    """Share of CPU samples in libgomp barrier/spin-wait functions."""
+    """Share of CPU samples in thread waiting: libgomp barrier/spin-wait
+    functions (leaf, OpenMP builds); with the stack classification of
+    gperf.classify (pool builds) also the pool's hand-off/barrier machinery
+    and Eigen's GEMM pool idling."""
     if not g or not g.get("total_samples"):
         return None
+    c = g.get("classes")
+    if c:
+        return (c["wait_omp"] + c["wait_pool"] + c["wait_eigen"]) / g["total_samples"]
     n = sum(v for fn, v in g["excl"].items() if OMP_WAIT_RE.match(fn))
     return n / g["total_samples"]
+
+
+def parallel_rows(good: list) -> list:
+    """Per gperf job: CPU share inside parallel-region bodies and the serial
+    share of the non-waiting CPU (Amdahl's s at 1 thread). Pool builds: from
+    the per-sample stack classification (also per phase); OpenMP builds
+    without it: inclusive samples of the outlined bodies (`*._omp_fn.N`,
+    no nested regions in these builds), whole run only."""
+    import cgparse
+    rows = []
+    for r in good:
+        g = r.get("gperf")
+        if r["tool"] != "gperf" or not g or not g.get("total_samples"):
+            continue
+        tot = g["total_samples"]
+        c = g.get("classes")
+        if c:
+            wait = c["wait_omp"] + c["wait_pool"] + c["wait_eigen"]
+            par, method = c["parallel"], "stack classification"
+        else:
+            wait = sum(v for fn, v in g["excl"].items() if OMP_WAIT_RE.match(fn))
+            par = sum(v for fn, v in g["incl"].items() if cgparse.is_region_fn(fn))
+            method = "inclusive samples of region functions"
+        work = tot - wait
+        s = 1 - par / work if work else None
+        base = {"job": r["job"], "dataset": r["dataset"], "threads": r["threads"],
+                "molecules": r.get("molecules_loaded") or r["molecules"], "method": method}
+        rows.append({**base, "phase": "(whole run)", "samples": tot, "wait_pct": round(100 * wait / tot, 2),
+                     "parallel_pct": round(100 * par / tot, 2),
+                     "serial_frac": round(s, 4) if s is not None else None,
+                     **{f"amdahl_{p}": round(1 / (s + (1 - s) / p), 3) if s is not None else None
+                        for p in (8, 16)}})
+        for ph, v in ((c or {}).get("phases") or {}).items():
+            w = v["samples"] - v["wait"]
+            sp = 1 - v["parallel"] / w if w > 0 else None
+            rows.append({**base, "phase": ph, "samples": round(v["samples"], 1),
+                         "wait_pct": round(100 * v["wait"] / v["samples"], 2) if v["samples"] else None,
+                         "parallel_pct": round(100 * v["parallel"] / v["samples"], 2) if v["samples"] else None,
+                         "serial_frac": round(sp, 4) if sp is not None else None,
+                         **{f"amdahl_{p}": round(1 / (sp + (1 - sp) / p), 3) if sp is not None else None
+                            for p in (8, 16)}})
+    return rows
 
 
 def tables_md(good: list, fits: list, xcheck: list, heap: list) -> str:
@@ -583,8 +640,10 @@ def tables_md(good: list, fits: list, xcheck: list, heap: list) -> str:
                      if r["tool"] == "heaptrack" else f"{r['peak_rss_kb'] / 2**20:.2f}",
                      f"{100 * ow:.1f}" if ow is not None else "",
                      ", ".join(f"{v:.1f}" for v in (r.get("loadavg_start") or [])[:1] + (r.get("loadavg_end") or [])[:1])))
+    pool = any((r.get("gperf") or {}).get("classes") for r in good)
     parts.append(t(["tool", "dataset", "thr", "molecules", "genes", "wall s (load-sens.)", "CPU s", "CPU/wall",
-                    "peak RSS GiB", "OpenMP wait % of CPU", "load 1m start, end"], rows))
+                    "peak RSS GiB", "wait % of CPU (pool/OpenMP)" if pool else "OpenMP wait % of CPU",
+                    "load 1m start, end"], rows))
     parts.append("\n## Exponents (log-log slope vs molecules)\n")
     rows = []
     for f in fits:
@@ -738,6 +797,8 @@ def main(argv=None) -> int:
     ap.add_argument("--only", default=None, help="comma-separated tools")
     ap.add_argument("--filter", default=None, help="glob on job ids, e.g. 'gperf-lung_*-t8'")
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--out", default=None,
+                    help="summarize: output directory (default <run_dir>/summary)")
     args = ap.parse_args(argv)
     if args.max_procs > 8:
         ap.error("--max-procs is capped at 8")
@@ -759,7 +820,8 @@ def main(argv=None) -> int:
     if args.cmd == "summarize":
         if not args.run_dir:
             ap.error("summarize needs <run_dir>")
-        summarize_run(Path(args.run_dir).resolve(), spec_path)
+        summarize_run(Path(args.run_dir).resolve(), spec_path,
+                      out=Path(args.out).resolve() if args.out else None)
         return 0
 
     dsets = scaling_datasets(root, spec)

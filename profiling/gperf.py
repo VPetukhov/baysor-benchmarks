@@ -142,14 +142,119 @@ class Symbolizer:
         return res
 
 
-def summarize(path: Path, top: int = 60) -> dict:
-    """Per-function exclusive (leaf) and inclusive (on stack) sample shares."""
+# ---------------------------------------------------------------------------
+# Thread-model classification of samples (OpenMP builds and builds with
+# Baysor's own pool, include/baysor/utils/thread_pool.h)
+# ---------------------------------------------------------------------------
+# libgomp barrier/spin-wait functions (leaf), as in scaling.py's original
+# "OpenMP wait % of CPU"
+OMP_WAIT_RE = re.compile(r"^(gomp_\w*(barrier|wait|spin)\w*|do_wait|do_spin|futex_wait)")
+# Low-level frames under a waiting function: clock reads of the spin
+# deadline, futex/condition-variable/mutex syscalls and their wrappers.
+WAIT_HELPER_RE = re.compile(
+    r"^(__vdso_\w+|clock_gettime\w*|__clock_gettime\w*|syscall|__GI_syscall|\w*futex\w*|"
+    r"\w*pthread_cond_\w+|\w*pthread_mutex_\w+|__lll_\w+|lll_\w+|std::condition_variable::\w+.*|"
+    r"std::__condvar::\w+.*|\w*sched_yield|std::chrono::_V2::(steady|system)_clock::now.*|"
+    r"__GI___\w+|\?\?|.*\+0x[0-9a-f]+)$")
+# Eigen's GEMM thread pool (EIGEN_GEMM_THREADPOOL) idling/spinning.
+EIGEN_WAIT_RE = re.compile(r"^Eigen::(ThreadPoolTempl<.*>::(WaitForWork|Steal|LocalSteal|GlobalSteal|"
+                           r"NonEmptyQueueIndex|WorkerLoop)|EventCount::|RunQueue<)")
+
+
+def _phase_of(frames, patterns):
+    """Outermost frame matching a phase pattern (closest to main)."""
+    import fnmatch
+    hit = None
+    for name in frames:
+        for pat, ph in patterns:
+            if fnmatch.fnmatchcase(name, pat):
+                hit = ph
+                break
+    return hit
+
+
+def classify(samples_frames, phases=None, region_name=None) -> dict:
+    """Split CPU samples by thread model.
+
+    * ``parallel``: samples inside a parallel-region body (an OpenMP outlined
+      function ``*._omp_fn.N`` or a pool chunk, the std::function<void(long,
+      long, int)> invoker of a work-shared loop; see cgparse.py);
+    * ``wait_pool``: the first frame above clock/futex/mutex helpers is the
+      pool's machinery (hand-off spin and block, region barrier, chunk
+      scheduling); ``wait_omp``: leaf in libgomp's barrier/spin functions;
+      ``wait_eigen``: Eigen's GEMM thread pool idling;
+    * per phase (outermost phase function on the stack; worker samples
+      without one are distributed over phases in proportion to the main
+      thread's samples of the same region): samples, parallel, wait.
+    """
+    import cgparse
+    pats = [(p["pattern"], p["name"]) for p in (phases or [])]
+    tot = {"samples": 0, "parallel": 0, "wait_pool": 0, "wait_omp": 0, "wait_eigen": 0}
+    regions = defaultdict(int)
+    ph = defaultdict(lambda: {"samples": 0, "parallel": 0, "wait": 0})
+    region_phase = defaultdict(lambda: defaultdict(int))
+    orphan = defaultdict(lambda: {"samples": 0, "parallel": 0, "wait": 0})   # region -> worker samples
+    for count, frames in samples_frames:
+        tot["samples"] += count
+        leaf = frames[0] if frames else "??"
+        kind = None
+        if OMP_WAIT_RE.match(leaf):
+            kind = "wait_omp"
+        else:
+            first = next((f for f in frames if not WAIT_HELPER_RE.match(f)), None)
+            if first is not None and cgparse.is_pool_runtime(first):
+                kind = "wait_pool"
+            elif first is not None and EIGEN_WAIT_RE.match(first):
+                kind = "wait_eigen"
+        reg = None
+        for f in frames:                 # outermost region frame
+            if cgparse.is_region_fn(f):
+                reg = f
+        if kind:
+            tot[kind] += count
+        if reg is not None and not kind:
+            tot["parallel"] += count
+            regions[reg] += count
+        if pats:
+            phase = _phase_of(frames, pats)
+            rec_kind = "wait" if kind else ("parallel" if reg is not None else None)
+            if phase is not None:
+                r = ph[phase]
+                if reg is not None:
+                    region_phase[reg][phase] += count
+            elif reg is not None:
+                r = orphan[reg]
+            else:
+                r = ph["(no phase: " + ("wait" if kind else "other") + ")"]
+            r["samples"] += count
+            if rec_kind:
+                r[rec_kind] += count
+    if pats:
+        for reg, o in orphan.items():
+            split = region_phase.get(reg) or {"(unattributed regions)": 1}
+            s = sum(split.values())
+            for name, w in split.items():
+                for k in ("samples", "parallel", "wait"):
+                    ph[name][k] += o[k] * w / s
+    name = region_name or (lambda f: f)
+    out = {**tot,
+           "regions": {name(f): n for f, n in sorted(regions.items(), key=lambda kv: -kv[1])[:40]}}
+    if pats:
+        out["phases"] = {k: {kk: round(vv, 2) for kk, vv in v.items()} for k, v in ph.items()}
+    return out
+
+
+def summarize(path: Path, top: int = 60, phases=None) -> dict:
+    """Per-function exclusive (leaf) and inclusive (on stack) sample shares;
+    with ``phases`` (profiling.yaml phase list) also the thread-model
+    classification (``classes``, see classify)."""
     period_us, samples, maps = read_profile(path)
     sym = Symbolizer(maps)
     excl = defaultdict(int)
     incl = defaultdict(int)
     obj_of = {}
     total = 0
+    stacks = []
     for count, pcs in samples:
         if not pcs:
             continue
@@ -161,6 +266,8 @@ def summarize(path: Path, top: int = 60) -> dict:
         for name, obj in dict.fromkeys(frames):
             incl[name] += count
             obj_of.setdefault(name, obj)
+        if phases is not None:
+            stacks.append((count, [f[0] for f in frames]))
     def rows(d):
         return [{"fn": fn, "object": obj_of.get(fn, ""), "samples": n,
                  "pct": round(100.0 * n / total, 3) if total else 0.0}
@@ -169,4 +276,10 @@ def summarize(path: Path, top: int = 60) -> dict:
             "cpu_s_sampled": round(total * period_us / 1e6, 2),
             "top_excl": rows(excl), "top_incl": rows(incl),
             "excl_all": {fn: n for fn, n in excl.items() if n >= max(1, total // 2000)},
-            "incl_all": {fn: n for fn, n in incl.items() if n >= max(1, total // 2000)}}
+            "incl_all": {fn: n for fn, n in incl.items() if n >= max(1, total // 2000)},
+            **({"classes": classify(stacks, phases, _short)} if phases is not None else {})}
+
+
+def _short(fn: str) -> str:
+    import summarize as qs   # lazy: summarize imports cgparse only
+    return qs.short_name(fn)

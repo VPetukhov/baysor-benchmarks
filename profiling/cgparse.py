@@ -24,6 +24,187 @@ def is_omp_fn(name: str) -> bool:
     return bool(OMP_FN_RE.search(name))
 
 
+# ---------------------------------------------------------------------------
+# Baysor's own thread pool (include/baysor/utils/thread_pool.h, since 7c2b936)
+# ---------------------------------------------------------------------------
+# Every work-shared loop of the pool (run_parallel_chunks, parallel_for,
+# parallel_reduce, ParallelRegion::for_chunks/for_each, the subpar/umappp
+# hooks) calls its body through a std::function<void(long, long, int)>, on the
+# pool workers and on the calling thread, also with 1 thread (then inline, in
+# index order). The invoker of that std::function is therefore the pool's
+# equivalent of an OpenMP outlined body (`f._omp_fn.N`): a *pool chunk*.
+# Persistent regions (parallel_region) run a std::function<void(ParallelRegion&)>
+# body on every participant; inside it only the for_chunks loops are work-shared
+# (`single` blocks and the rest of the body are serial or replicated), so the
+# body itself is not counted as parallel work.
+POOL_CHUNK_PREFIX = "std::_Function_handler<void (long, long, int), "
+POOL_BODY_PREFIX = "std::_Function_handler<void (baysor::ParallelRegion&), "
+POOL_SINGLE_PREFIX = "std::_Function_handler<void (), baysor::ParallelRegion::single<"
+# Pool machinery (not user code): never expanded when mapping regions to
+# phases (like GOMP_* for OpenMP), and its own cost is pool runtime.
+POOL_RUNTIME_RE = re.compile(
+    r"^(baysor::run_parallel_chunks\(|baysor::parallel_region\(|baysor::ParallelRegion::"
+    r"(for_chunks|barrier|run_guarded|cancelled)\(|baysor::\(anonymous namespace\)::ThreadPool::|"
+    r"std::_Function_handler<void \(int\), baysor::parallel_region\(|"
+    r"std::_Function_handler<void \(\), baysor::ParallelRegion::for_chunks\(|"
+    r"std::thread::_State_impl<.*baysor::\(anonymous namespace\)::ThreadPool)")
+# Pool entry points: a call into one of these from inside a pool chunk is a
+# nested parallel call (it runs serially inline).
+POOL_ENTRY_RE = re.compile(r"^baysor::(run_parallel_chunks|parallel_region)\(")
+# Pool wrappers whose lambda forwards to the user's callable (template arg).
+POOL_WRAPPERS = ("baysor::parallel_for", "baysor::parallel_for_static", "baysor::parallel_reduce",
+                 "baysor::ParallelRegion::for_each", "baysor::subpar_parallelize_range",
+                 "baysor::subpar_parallelize_simple", "baysor::umappp_parallel_range")
+
+
+def is_pool_chunk(name: str) -> bool:
+    return name.startswith(POOL_CHUNK_PREFIX) and "::_M_invoke(" in name
+
+
+def is_pool_runtime(name: str) -> bool:
+    return bool(POOL_RUNTIME_RE.match(name))
+
+
+def is_region_fn(name: str) -> bool:
+    """A parallel-region body: OpenMP outlined function or pool chunk."""
+    return is_omp_fn(name) or is_pool_chunk(name)
+
+
+def _match_close(s: str, i: int) -> int:
+    """Index of the bracket closing s[i] ('<' or '('), skipping operator<..."""
+    depth = 0
+    pairs = {"<": ">", "(": ")"}
+    stack = []
+    j = i
+    while j < len(s):
+        c = s[j]
+        if s.startswith("operator<", j) or s.startswith("operator>", j) or s.startswith("operator-", j):
+            j += 9
+            continue
+        if c in pairs:
+            stack.append(pairs[c])
+        elif stack and c == stack[-1]:
+            stack.pop()
+            if not stack:
+                return j
+        j += 1
+    return -1 if depth == 0 else -1
+
+
+def _split_top(s: str, sep: str = ",") -> list:
+    """Split at `sep` outside <...> and (...)."""
+    out, depth, cur = [], 0, []
+    j = 0
+    while j < len(s):
+        c = s[j]
+        if s.startswith("operator<", j) or s.startswith("operator>", j):
+            cur.append(s[j:j + 9]); j += 9; continue
+        if c in "<(":
+            depth += 1
+        elif c in ">)":
+            depth -= 1
+        if c == sep and depth == 0:
+            out.append("".join(cur).strip()); cur = []
+        else:
+            cur.append(c)
+        j += 1
+    out.append("".join(cur).strip())
+    return out
+
+
+def handler_target(name: str) -> str | None:
+    """`X` of `std::_Function_handler<SIG, X>::_M_invoke(...)`."""
+    if not name.startswith("std::_Function_handler<"):
+        return None
+    i = len("std::_Function_handler")
+    j = _match_close(name, i)
+    if j < 0:
+        return None
+    args = _split_top(name[i + 1:j])
+    return args[1] if len(args) >= 2 else None
+
+
+def _strip_lambda(x: str):
+    """'E::{lambda(...)#N}' -> ('E', 'N'); None if x is not a lambda type."""
+    m = re.search(r"::\{lambda\(", x)
+    if not m:
+        return None
+    # last top-level '::{lambda(' (lambdas inside template args are nested)
+    idx, depth, j = None, 0, 0
+    while j < len(x):
+        c = x[j]
+        if c in "<(":
+            depth += 1
+        elif c in ">)":
+            depth -= 1
+        elif depth == 0 and x.startswith("::{lambda(", j):
+            idx = j
+        j += 1
+    if idx is None:
+        return None
+    m = re.match(r"::\{lambda\(.*\)#(\d+)\}$", x[idx:])
+    return x[:idx], (m.group(1) if m else "?")
+
+
+def _template_args(e: str) -> list:
+    """Template arguments of the function in a (demangled) signature 'R ns::f<A, B>(args)'."""
+    # the function's own '<' is the last top-level one before the argument list
+    depth, j, lt = 0, 0, None
+    while j < len(e):
+        c = e[j]
+        if c == "(" and depth == 0:
+            break
+        if c == "<":
+            if depth == 0:
+                lt = j
+            depth += 1
+        elif c == ">":
+            depth -= 1
+        j += 1
+    if lt is None:
+        return []
+    k = _match_close(e, lt)
+    return _split_top(e[lt + 1:k]) if k > 0 else []
+
+
+def fn_base(e: str) -> str:
+    """Qualified name without template args, argument list and return type."""
+    e = e.replace("(anonymous namespace)", "{anon}")
+    out, depth = [], 0
+    for c in e:
+        if c in "<(":
+            if c == "(" and depth == 0:
+                break
+            depth += 1
+        elif c in ">)":
+            depth -= 1
+        elif depth == 0:
+            out.append(c)
+    head = "".join(out).strip()
+    return head.rsplit(" ", 1)[-1] if " " in head else head
+
+
+def pool_callable(name: str):
+    """(enclosing function, lambda number) of the user callable behind a pool
+    handler (chunk, persistent-region body or single block), unwrapping the
+    pool's own wrappers (parallel_for, ParallelRegion::for_each, ...)."""
+    x = handler_target(name)
+    if x is None:
+        return None
+    for _ in range(4):
+        r = _strip_lambda(x)
+        if r is None:
+            return (x, "")
+        enc, num = r
+        if fn_base(enc) in POOL_WRAPPERS or fn_base(enc) == "baysor::ParallelRegion::single":
+            inner = [a.rstrip("&").strip() for a in _template_args(enc) if "{lambda(" in a]
+            if inner:
+                x = inner[0]
+                continue
+        return (enc, num)
+    return None
+
+
 def _add(dst: list, src: list) -> None:
     if len(dst) < len(src):
         dst.extend([0] * (len(src) - len(dst)))
