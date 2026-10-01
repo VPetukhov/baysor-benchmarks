@@ -76,6 +76,11 @@ INK, INK2, MUTED, GRID = "#0b0b0b", "#52514e", "#8a8984", "#e4e3df"
 BEFORE_GRAY = "#a3a29c"
 
 GITHUB = "https://github.com/VPetukhov/baysor-benchmarks"
+# thread entry points and pool/OpenMP machinery: inclusive shares say nothing
+NOISE_FN = re.compile(r"^(__clone3?|start_thread|execute_native_thread_routine|std::thread::_State_impl|"
+                      r"gomp_thread_start|GOMP_parallel|main|_start|__libc_start|cmd_run|"
+                      r"baysor::(run_parallel_chunks|parallel_region|ParallelRegion::)|.*\.pool_region$|"
+                      r"std::_Function_handler::_M_invoke$)")
 
 
 # ---------------------------------------------------------------------------
@@ -205,7 +210,7 @@ def esc(s) -> str:
 
 
 def fmt(v, nd=1, unit=""):
-    if v is None or v == "":
+    if v is None or v == "" or isinstance(v, bool):
         return "—"
     if isinstance(v, str):
         return esc(v)
@@ -458,8 +463,8 @@ def chart_phase_stack(before: Tier, after: Tier, title: str) -> str:
     ax.grid(axis="y", visible=False)
     ax.set_title(title, loc="left")
     handles = [p.Rectangle((0, 0), 1, 1, color=GROUP_COLOR[g]) for g in PHASE_GROUPS]
-    ax.legend(handles, PHASE_GROUPS, ncol=7, loc="upper left", bbox_to_anchor=(0, -0.08 - 2.0 / n),
-              fontsize=8.5, handlelength=1.0, columnspacing=1.1)
+    ax.legend(handles, PHASE_GROUPS, ncol=1, loc="lower left", bbox_to_anchor=(1.01, 0.0), fontsize=8.5,
+              handlelength=1.0, title="phase", title_fontsize=8.5)
     return svg_of(fig, tips, title)
 
 
@@ -529,14 +534,21 @@ def chart_grouped_bars(cats, groups, title, ylabel, figsize=(9, 3.2), fmt_v=lamb
 # ---------------------------------------------------------------------------
 
 class Report:
-    def __init__(self, bdir: Path, adir: Path, notes: dict, out: Path):
+    def __init__(self, bdir: Path, adir: Path, notes: dict, out: Path, extra=None):
         self.bdir, self.adir, self.notes, self.out = bdir, adir, notes, out
+        # optional intermediate commit (label, report dir), shown in the NCV area
+        self.extra = (extra[0], Tier(extra[1] / "summary-report-run"), Scaling(extra[1] / "summary-scaling-run")) \
+            if extra else None
         self.B = Tier(bdir / "summary-report-run")
         self.A = Tier(adir / "summary-report-run")
         self.Bq = Tier(bdir / "summary-quick-run")
         self.Aq = Tier(adir / "summary-quick-run")
         self.BS = Scaling(bdir / "summary-scaling-run")
         self.AS = Scaling(adir / "summary-scaling-run")
+        if not self.BS.parallel:
+            # the earlier run predates scaling_parallel.csv: a re-summary of it
+            # (scaling.py summarize <before run> --out ...) may be kept next to the new report
+            self.BS.parallel = read_csv(adir / "before-scaling_parallel.csv")
         self.toc = []
 
     # -- helpers -----------------------------------------------------------
@@ -844,6 +856,8 @@ pre-optimization profile @ <strong>{esc(sha_b)}</strong>
             ncv.append(table(["phase", "G Ir before", "after", "Δ", "serial % before", "after"], rows, raw=True,
                              num_cols=range(1, 6), caption="<code>--plot</code> run (pancreas 20k, 1 thread)"))
         ncv.append(self.scaling_phase_rows("ncv_colors", ["lung_100k", "lung_1M", "lung_all", "prime5k_8M"]))
+        if self.extra:
+            ncv.append(self.extra_ncv_table())
         body.append(("NCV colours and --plot", "\n".join(ncv)))
         # BMM
         bmm = [self.note("area_bmm"), self.phase_delta_rows("bmm_iterations"),
@@ -872,6 +886,33 @@ pre-optimization profile @ <strong>{esc(sha_b)}</strong>
         body.append(("Threading (own pool instead of OpenMP)", "\n".join(th)))
         html_ = "".join(f"<h3>{esc(t)}</h3>{b}" for t, b in body)
         return self.section("areas", "3 · Per optimization area: what changed, measured effect", html_)
+
+    def extra_ncv_table(self):
+        lab, X, XS = self.extra
+        rows = []
+        for ds, dl in DATASETS:
+            job = f"callgrind-{ds}-t1"
+            b, x, a = (T.phase_ir(job).get("ncv_colors") for T in (self.B, X, self.A))
+            if not a:
+                continue
+            nb, nx, na = (T.native_phase(ds, 1, "ncv_colors") for T in (self.B, X, self.A))
+            rows.append([esc(dl), G(b and b["Ir"]), G(x and x["Ir"]), G(a["Ir"]),
+                         fmt(nb and nb["cpu_s_median"], 2), fmt(nx and nx["cpu_s_median"], 2),
+                         fmt(na and na["cpu_s_median"], 2)])
+        for t in (8,):
+            nb, nx, na = (T.native_phase(REP, t, "ncv_colors") for T in (self.B, X, self.A))
+            rows.append([esc(f"pancreas 20k, {t} thr (wall s)"), "", "", "", fmt(nb and nb["wall_s_median"], 2),
+                         fmt(nx and nx["wall_s_median"], 2), fmt(na and na["wall_s_median"], 2)])
+        jp = f"callgrind-{REP}-t1-plot"
+        rows.append(["<strong>--plot run, whole (G Ir)</strong>", G(self.B.total_ir(jp)), G(X.total_ir(jp)),
+                     G(self.A.total_ir(jp)), "", "", ""])
+        for ds in ("lung_all", "prime5k_8M"):
+            pb, px, pa = self.BS.phase(ds, 8, "ncv_colors"), XS.phase(ds, 8, "ncv_colors"), self.AS.phase(ds, 8, "ncv_colors")
+            rows.append([code(f"{ds} 8 thr (CPU s)"), "", "", "", fmt(pb and pb["cpu_s"], 0), fmt(px and px["cpu_s"], 0),
+                         fmt(pa and pa["cpu_s"], 0)])
+        return table(["dataset", "G Ir before", f"with {esc(lab)}", "now", "CPU s before (native 1 thr)",
+                      f"with {esc(lab)}", "now"], rows, raw=True, num_cols=range(1, 7),
+                     caption=f"Phase <code>ncv_colors</code>: before, with {esc(lab)}, and now")
 
     def dhat_compare(self, datasets, churn=False):
         rows = []
@@ -1066,6 +1107,26 @@ pre-optimization profile @ <strong>{esc(sha_b)}</strong>
                               caption="Parallel regions at 16 threads, after (callgrind)"))
         # real size parallel
         body.append(self.real_parallel())
+        tabs = []
+        for ds, thr in (("lung_2M", 1), ("lung_1M", 1), ("prime5k_500k", 1), ("lung_2M", 8), ("lung_all", 8),
+                        ("prime5k_8M", 8), ("cosmx_wtx_colon_full", 8)):
+            rows = [r for r in self.AS.parallel if r["dataset"] == ds and r["threads"] == thr
+                    and r["phase"] != "(whole run)" and (r["samples"] or 0) >= 0.002 * max(
+                        (x["samples"] for x in self.AS.parallel if x["dataset"] == ds and x["threads"] == thr), default=1)]
+            if not rows:
+                continue
+            tot = sum(r["samples"] for r in rows) or 1
+            rows.sort(key=lambda r: -r["samples"])
+            tabs.append((f"{ds}, {thr} thr", table(
+                ["phase", "% of CPU samples", "parallel %", "wait %", "serial % of non-wait CPU", "Amdahl 8", "Amdahl 16"],
+                [[code(r["phase"]), fmt(100 * r["samples"] / tot, 1), fmt(r["parallel_pct"], 1), fmt(r["wait_pct"], 1),
+                  fmt(None if r["serial_frac"] is None else 100 * r["serial_frac"], 1), fmt(r["amdahl_8"], 2),
+                  fmt(r["amdahl_16"], 2)] for r in rows], raw=True, num_cols=range(1, 7))))
+        if tabs:
+            body.append("<h3>Per phase at real sizes (after; gperftools stack classification)</h3>"
+                        "<p class='cap'>Phase = outermost phase function on the sample's stack; worker samples "
+                        "are mapped to phases through the main thread's samples of the same pool loop. At 1 thread "
+                        "the serial share is Amdahl's <em>s</em> for that phase at this size.</p>" + tabset("rp", tabs))
         return self.section("threads", "4 · Threads: 1 → 16", "\n".join(body))
 
     def real_parallel(self):
@@ -1153,10 +1214,15 @@ pre-optimization profile @ <strong>{esc(sha_b)}</strong>
                 if not a and not b:
                     continue
                 ea, eb = a and a["exponent"], b and b["exponent"]
-                flag = '<span class="flag">super-linear</span>' if isinstance(eb, (int, float)) and eb >= 1.15 \
-                    and (b.get("superlinear") is True or what == "total") else ""
-                was = '<span class="flag old">was super-linear</span>' if isinstance(ea, (int, float)) and ea >= 1.15 \
-                    and not flag else ""
+                sup_b = isinstance(eb, (int, float)) and eb >= 1.15
+                if sup_b and (b.get("superlinear") is True or what == "total"):
+                    flag = '<span class="flag">super-linear</span>'
+                elif sup_b:
+                    flag = '<span class="flag old">super-linear, < 2 % of CPU</span>'
+                else:
+                    flag = ""
+                was = ('<span class="flag old">was super-linear</span>'
+                       if isinstance(ea, (int, float)) and ea >= 1.15 and not sup_b else "")
                 sh = lambda r: (f"{100 * r['share_first']:.1f} → {100 * r['share_last']:.1f}"  # noqa: E731
                                 if r and isinstance(r.get("share_first"), (int, float)) else "")
                 rows.append([esc(slide), thr, esc(what.replace("_cpu", "")), code(name), fmt(ea, 2), fmt(eb, 2),
@@ -1174,6 +1240,8 @@ pre-optimization profile @ <strong>{esc(sha_b)}</strong>
             if not shares or max(shares) < 0.02:
                 continue
             if not (f.get("superlinear") is True or f.get("growing_share") is True):
+                continue
+            if NOISE_FN.match(f["name"]):
                 continue
             rows.append([esc(f["slide"]), f["threads"], esc(f["what"][3:]), code(f["name"]), fmt(f["exponent"], 2),
                          f"{100 * f['share_first']:.1f} → {100 * f['share_last']:.1f}",
@@ -1250,9 +1318,9 @@ pre-optimization profile @ <strong>{esc(sha_b)}</strong>
             if not j:
                 continue
             bsite = {x["site"]: x for x in (jbf or {}).get("heaptrack_top_peak", [])}
-            rows = [[code(x["site"])[:400], fmt(x.get("peak", 0) / 2**20, 1),
-                     fmt(bsite.get(x["site"], {}).get("peak") and bsite[x["site"]]["peak"] / 2**20, 1),
-                     fmt(100 * x.get("peak", 0) / j["heaptrack_peak_heap"], 1) if j.get("heaptrack_peak_heap") else "—"]
+            rows = [[code(x["site"])[:400], fmt(x.get("peak_bytes", 0) / 2**20, 1),
+                     fmt(bsite.get(x["site"], {}).get("peak_bytes") and bsite[x["site"]]["peak_bytes"] / 2**20, 1),
+                     fmt(100 * x.get("peak_bytes", 0) / j["heaptrack_peak_heap"], 1) if j.get("heaptrack_peak_heap") else "—"]
                     for x in j.get("heaptrack_top_peak", [])[:10]]
             ht.append((ds, f"<p class='cap'>peak heap {j.get('heaptrack_peak_heap', 0) / 2**30:.2f} GiB "
                            f"(before {((jbf or {}).get('heaptrack_peak_heap') or 0) / 2**30:.2f}), "
@@ -1282,6 +1350,7 @@ pre-optimization profile @ <strong>{esc(sha_b)}</strong>
                          and f["what"] == kind and f["tool"] == "gperf"]
                 before = {f["name"]: f for f in self.BS.fits if f["slide"] == slide and f["threads"] == thr
                           and f["what"] == kind and f["tool"] == "gperf"}
+                after = [f for f in after if not NOISE_FN.match(f["name"])]
                 after.sort(key=lambda f: -(f["share_last"] or 0))
                 rows = []
                 for f in after[:15]:
@@ -1529,13 +1598,19 @@ def main(argv=None) -> int:
     ap.add_argument("--notes", default=None, help="narrative (Markdown subset with section markers); "
                                                   "default <after>/notes.md if present")
     ap.add_argument("--out", default=None, help="default <after>/report.html")
+    ap.add_argument("--extra", default=None, metavar="LABEL=DIR",
+                    help="intermediate report directory shown next to before/after in the NCV area")
     ap.add_argument("--md", default=None, help="also write the headline numbers as Markdown "
                                                "(e.g. <after>/REPORT.md)")
     args = ap.parse_args(argv)
     bdir, adir = Path(args.before).resolve(), Path(args.after).resolve()
     out = Path(args.out).resolve() if args.out else adir / "report.html"
     notes_path = args.notes or (adir / "notes.md")
-    rep = Report(bdir, adir, load_notes(notes_path), out)
+    extra = None
+    if args.extra:
+        lab, _, d = args.extra.partition("=")
+        extra = (lab, Path(d).resolve())
+    rep = Report(bdir, adir, load_notes(notes_path), out, extra)
     page = rep.render()
     bad = check_offline(page)
     if bad:
