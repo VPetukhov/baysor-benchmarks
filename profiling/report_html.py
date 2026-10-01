@@ -895,7 +895,10 @@ pre-optimization profile @ <strong>{esc(sha_b)}</strong>
             b, x, a = (T.phase_ir(job).get("ncv_colors") for T in (self.B, X, self.A))
             if not a:
                 continue
-            nb, nx, na = (T.native_phase(ds, 1, "ncv_colors") for T in (self.B, X, self.A))
+            # native times only for the representative crop: the other 1-thread
+            # native jobs share a lane with the Valgrind pool (load-sensitive)
+            nb, nx, na = ((T.native_phase(ds, 1, "ncv_colors") for T in (self.B, X, self.A))
+                          if ds == REP else (None, None, None))
             rows.append([esc(dl), G(b and b["Ir"]), G(x and x["Ir"]), G(a["Ir"]),
                          fmt(nb and nb["cpu_s_median"], 2), fmt(nx and nx["cpu_s_median"], 2),
                          fmt(na and na["cpu_s_median"], 2)])
@@ -910,7 +913,7 @@ pre-optimization profile @ <strong>{esc(sha_b)}</strong>
             pb, px, pa = self.BS.phase(ds, 8, "ncv_colors"), XS.phase(ds, 8, "ncv_colors"), self.AS.phase(ds, 8, "ncv_colors")
             rows.append([code(f"{ds} 8 thr (CPU s)"), "", "", "", fmt(pb and pb["cpu_s"], 0), fmt(px and px["cpu_s"], 0),
                          fmt(pa and pa["cpu_s"], 0)])
-        return table(["dataset", "G Ir before", f"with {esc(lab)}", "now", "CPU s before (native 1 thr, load-sens.)",
+        return table(["dataset", "G Ir before", f"with {esc(lab)}", "now", "CPU s before (native 1 thr, thread series)",
                       f"with {esc(lab)}", "now"], rows, raw=True, num_cols=range(1, 7),
                      caption=f"Phase <code>ncv_colors</code>: before, with {esc(lab)}, and now")
 
