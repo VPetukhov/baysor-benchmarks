@@ -31,7 +31,7 @@ def test_real_suites_resolve():
 
     exact, noise = regular.steps
     assert (exact.threads, exact.replicates, exact.expect) == (1, 1, "identical")
-    assert exact.baseline == "bugfixes-35e8a7e-t1"
+    assert exact.baseline == "cpp-dev-llm-b8bba9d-t1"
     assert exact.celladmix is False and exact.no_ami is True
     assert (noise.threads, noise.replicates, noise.expect) == (6, 1, "same")
     assert noise.baseline == "bugfixes-35e8a7e"

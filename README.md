@@ -125,7 +125,8 @@ Official baselines of the current algorithm (stored under
 
 | baseline | flavor | contents |
 |---|---|---|
-| `$BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e-t1/` | `identical` | quick tier, 1 thread, 1 replicate, no cellAdmix |
+| `$BAYSOR_BENCH_DATA/baselines/cpp-dev-llm-b8bba9d-t1/` | `identical` | quick tier, 1 thread, 1 replicate, no cellAdmix, NCV colours skipped; binary `.bench-data/binaries/baysor-cpp-dev-llm-b8bba9d` (Baysor `cpp-dev-llm` @ b8bba9d, includes the edge-order fix, so results do not depend on output paths or run-id length); used by the `regular` and `release` identical steps |
+| `$BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e-t1/` | `identical` | previous 1-thread baseline (binary `baysor-bugfixes-35e8a7e`, before the edge-order fix: path-length sensitive); kept for reference |
 | `$BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e/` | noise floor | quick + full tier, 6 threads, 3 replicates (full tier: see its README), cellAdmix audit with stable typing |
 
 Setup used by every command below (from the repository root):

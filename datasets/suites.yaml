@@ -50,7 +50,7 @@ suites:
         celladmix: false
         no_ami: true
         expect: identical
-        baseline: bugfixes-35e8a7e-t1
+        baseline: cpp-dev-llm-b8bba9d-t1
       - name: noise
         group: noise
         datasets:
@@ -127,4 +127,4 @@ suites:
         timeout: 1800
         celladmix: false
         expect: identical
-        baseline: bugfixes-35e8a7e-t1
+        baseline: cpp-dev-llm-b8bba9d-t1
