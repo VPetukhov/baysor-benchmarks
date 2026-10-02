@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Figures and table numbers for the "Performance" pages of the Baysor docs.
+"""Figures, chart data and tables of the "Performance" pages of the Baysor docs.
 
 One command regenerates every figure of ``docs/performance/`` in a Baysor
-checkout and the numbers of its tables::
+checkout, the data of its interactive charts, its per-dataset table and the
+owner-only profiling report::
 
     .deps/bench/bin/python docs_figures/make_figures.py \\
         --docs /path/to/Baysor/docs/performance
@@ -15,6 +16,8 @@ Inputs (all read-only, under ``$BAYSOR_BENCH_DATA``, default
   benchmark (cpp-0.9.0 candidate vs cpp-0.8.3, 77 datasets);
 * ``docs-figures/remeasure/runs.tsv`` - the one-process-at-a-time re-measurement written by
   ``remeasure.py`` (thread sweep and the real full-tier datasets);
+* ``docs-figures/ncv/<dataset>/`` - the segmentation-example crops re-run with
+  NCV colours on by ``ncv_runs.py``;
 * ``profiling/reports/2026-10-01-20bc45c/`` and
   ``profiling/reports/2026-09-30-e45fddc/`` - the profiling summaries (after /
   before the optimisation);
@@ -22,10 +25,15 @@ Inputs (all read-only, under ``$BAYSOR_BENCH_DATA``, default
 
 Outputs:
 
-* ``<docs>/img/*.svg|png`` - charts in a light and a dark variant
-  (``*-light.svg`` / ``*-dark.svg``, selected by MkDocs Material's
-  ``#only-light`` / ``#only-dark``); the segmentation mosaic is one PNG on a
-  dark background that reads in both themes;
+* ``<docs>/data/*.json`` - the specs of the interactive charts, drawn in the
+  browser by ``docs/assets/perfcharts/perfcharts.js`` of the Baysor repository;
+* ``<docs>/img/*-{light,dark}.png`` - the scatterplots of biological data
+  (segmentation examples, UMAPs), one image per Material colour scheme
+  (``#only-light`` / ``#only-dark``);
+* the per-dataset table of ``<docs>/profiling.md`` (between the
+  ``docs_figures:runtime-table`` markers);
+* ``docs_figures/generated/owner_report.md`` and ``generated/owner/`` - the
+  owner-only "where the time goes" / "current bottlenecks" report (not in the docs);
 * ``docs_figures/generated/tables.md`` - every number quoted in the pages,
   as Markdown tables, each with the file it comes from;
 * ``docs_figures/generated/numbers.json`` - the same numbers, machine-readable.
@@ -33,7 +41,6 @@ Outputs:
 from __future__ import annotations
 
 import argparse
-import csv
 import io
 import json
 import math
@@ -48,8 +55,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
-from matplotlib.collections import LineCollection  # noqa: E402
-from matplotlib.lines import Line2D  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 DATA = Path(os.environ.get("BAYSOR_BENCH_DATA", "/home/vpetukhov/Projects/Baysor/.bench-data"))
@@ -223,92 +228,156 @@ def short(ds: str) -> str:
     return SHORT.get(base, base)
 
 
-# -------------------------------------------------------------- figures ----
+# --------------------------------------------------- interactive charts ----
+#
+# The benchmark and statistics charts of the docs are drawn in the browser by
+# docs/javascripts/perfcharts.js (vendored in the Baysor repository) from one
+# JSON spec per chart, written to <docs>/data/<name>.json:
+#
+#   {"columns": 1|2, "legend": [{name, color, marker, line, open}],
+#    "panels": [{"title", "height", "marginLeft", "hover": "point"|"x",
+#                "x"/"y": {"label", "log", "fmt": "si"|"plain"|"pct", "ticks", "min", "max",
+#                          "type": "band", "categories"},
+#                "series": [{name, color, marker, line, open,
+#                            points: [{x, y, title, rows: [[value, label]], xTitle, yText, rowLabel}]}],
+#                "refs": [{"type": "vline", x, label} | {"type": "line", points, dash, label, labelAt}],
+#                "labels": [{x, y, text, dx, dy}], "links": [{x1, x2, y}]}],
+#    "table": {"columns": [...], "rows": [[...]]}}
+#
+# Colours are slot numbers (0-2: the categorical palette) or token names
+# ("ink2", "base"); the stylesheet maps them to the light or dark theme.
 
-@both_modes
-def fig_runtime_vs_molecules(out, mode, t):
+NAME = {
+    "xenium_pancreas_377": "Xenium pancreas", "xenium_lung_cancer": "Xenium lung cancer",
+    "xenium_breast_rep1_dense": "Xenium breast cancer", "xenium_breast_rep1_stroma": "Xenium breast stroma",
+    "xenium_breast_rep1_imageprior": "Xenium breast cancer, image prior",
+    "xenium_breast_rep1_z": "Xenium breast cancer, z-stack", "xenium_breast_rep2_dense": "Xenium breast cancer rep2",
+    "xenium_mouse_brain_ff": "Xenium mouse brain", "xenium_mouse_brain_ff_edge": "Xenium mouse brain, tissue edge",
+    "xenium_prime5k_ovarian": "Xenium Prime 5K ovarian", "cosmx_nsclc_lung5_rep1": "CosMx lung cancer",
+    "cosmx_wtx_colon": "CosMx WTx colon", "merfish_ileum": "MERFISH ileum (3D)",
+    "iss_mouse_hippocampus": "ISS hippocampus", "osmfish_somatosensory": "osmFISH cortex",
+    "starmap_visual_cortex": "STARmap cortex (3D)",
+}
+PLATFORM_SLOT = {"Xenium": 0, "CosMx SMI": 1, "MERFISH": 2, "other": "ink2"}
+PLATFORM_SHAPE = {"Xenium": "circle", "CosMx SMI": "square", "MERFISH": "triangle", "other": "diamond"}
+
+
+def name(ds: str) -> str:
+    base = re.sub(r"_(quick|full|admix)$", "", ds)
+    return NAME.get(base, base)
+
+
+def size_tag(n: float) -> str:
+    return f"{n / 1e6:.1f}M" if n >= 9.5e5 else f"{n / 1e3:.0f}k"
+
+
+def r4(v):
+    """Round floats for compact JSON."""
+    if isinstance(v, float):
+        return float(f"{v:.4g}")
+    if isinstance(v, dict):
+        return {k: r4(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [r4(x) for x in v]
+    return v
+
+
+def write_chart(out: Path, name_: str, spec: dict):
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"{name_}.json").write_text(json.dumps(r4(spec), separators=(",", ":"), ensure_ascii=False) + "\n")
+
+
+def load_txt(v) -> str:
+    return "—" if v is None or (isinstance(v, float) and math.isnan(v)) else f"{v:.1f}"
+
+
+def chart_runtime_vs_molecules(out: Path):
+    """Figure 1 of Profiling: wall time and peak RSS vs molecules, real crops, current version."""
     df = runtime_table()
     d = df[(df.kind == "real") & (df.threads == 6)].copy()
     d["group"] = d.platform.map(platform_group)
-    src("runtime_vs_molecules", RC / "tables/runtime.csv", RUNS / "rc1636-real",
-        RUNS / "v0083-real", DATA / "real")
-    fig, axes = plt.subplots(1, 2, figsize=(7.6, 3.6))
-    for ax, (new, old, ylab, title) in zip(axes, [
-            ("wall_rc", "wall_old", "wall time, s", "Wall time (6 threads)"),
-            ("rss_rc_mib", "rss_old_mib", "peak memory (RSS), MiB", "Peak memory (6 threads)")]):
+    src("runtime_vs_molecules", RC / "tables/runtime.csv", RUNS / "rc1636-real", DATA / "real")
+    panels = []
+    for col, ylab, title, fmt in (("wall_rc", "wall time, s", "Wall time (6 threads)", fmt_s),
+                                  ("rss_rc_mib", "peak memory (RSS), MiB", "Peak memory (6 threads)", fmt_mem)):
+        series = []
         for g in PLATFORM_ORDER:
-            s = d[d.group == g]
-            if s.empty:
-                continue
-            c = platform_color(t, g)
-            segs = [[(x, y0), (x, y1)] for x, y0, y1 in zip(s.n_molecules, s[old], s[new])]
-            ax.add_collection(LineCollection(segs, colors=c, linewidths=1, alpha=0.45))
-            ax.scatter(s.n_molecules, s[old], marker=PLATFORM_MARKER[g], s=30,
-                       facecolors="none", edgecolors=c, linewidths=1.1, alpha=0.8, zorder=3)
-            ax.scatter(s.n_molecules, s[new], marker=PLATFORM_MARKER[g], s=40, color=c,
-                       edgecolors=t["surface"], linewidths=0.8, zorder=4,
-                       label=PLATFORM_LABEL[g])
-        # label the gene-rich panels, they sit above the trend
-        for _, r in d[d.n_genes >= 4000].iterrows():
-            ax.annotate(f"{short(r.dataset)}\n{r.n_genes:,} genes", (r.n_molecules, r[new]),
-                        xytext=(6, -2), textcoords="offset points", fontsize=7.5,
-                        color=t["ink2"], va="top")
-        log_axis(ax)
-        ax.set_xlabel("molecules")
-        ax.set_ylabel(ylab)
-        ax.set_title(title)
-    handles = [Line2D([], [], marker=PLATFORM_MARKER[g], ls="", color=platform_color(t, g),
-                      label=PLATFORM_LABEL[g]) for g in PLATFORM_ORDER]
-    handles += [Line2D([], [], marker="o", ls="", color=t["ink2"], label=NEW + " (filled)"),
-                Line2D([], [], marker="o", ls="", markerfacecolor="none",
-                       markeredgecolor=t["ink2"], label=OLD + " (open)")]
-    fig.legend(handles=handles, loc="lower center", ncol=3, bbox_to_anchor=(0.5, -0.13),
-               handletextpad=0.3, columnspacing=1.2)
-    fig.tight_layout()
-    save(fig, out, "runtime_vs_molecules", mode)
+            s = d[d.group == g].sort_values("n_molecules")
+            pts = []
+            for _, r in s.iterrows():
+                pts.append(dict(x=int(r.n_molecules), y=float(r[col]),
+                                title=f"{name(r.dataset)}, {size_tag(r.n_molecules)} molecules",
+                                rows=[[fmt(r[col]), title.lower()],
+                                      [f"{int(r.n_molecules):,}", "molecules"], [f"{int(r.n_genes):,}", "genes"],
+                                      [fmt_s(r.cpu_rc), "CPU time"] if col == "wall_rc" else
+                                      [fmt_s(r.wall_rc), "wall time"],
+                                      [f"{int(r.n_rc)}", "runs, median shown"],
+                                      [load_txt(r.load_rc), "mean 1-min load"],
+                                      [r.dataset, "benchmark id"]]))
+            series.append(dict(name=PLATFORM_LABEL[g], color=PLATFORM_SLOT[g], marker=PLATFORM_SHAPE[g],
+                               size=4.5, points=pts))
+        labels = [dict(x=int(r.n_molecules), y=float(r[col]), dx=9, dy=4,
+                       text=f"{name(r.dataset)}, {int(r.n_genes):,} genes")
+                  for _, r in d[d.n_genes >= 4000].iterrows()]
+        panels.append(dict(title=title, height=330, x=dict(label="molecules", log=True),
+                           y=dict(label=ylab, log=True, fmt="plain"), series=series, labels=labels))
+    rows = [[name(r.dataset), r.platform, f"{int(r.n_molecules):,}", f"{int(r.n_genes):,}", fmt_s(r.wall_rc),
+             fmt_s(r.cpu_rc), fmt_mem(r.rss_rc_mib), int(r.n_rc), load_txt(r.load_rc), r.dataset]
+            for _, r in d.sort_values("n_molecules").iterrows()]
+    write_chart(out, "runtime_vs_molecules", dict(
+        columns=1,
+        legend=[dict(name=PLATFORM_LABEL[g], color=PLATFORM_SLOT[g], marker=PLATFORM_SHAPE[g])
+                for g in PLATFORM_ORDER],
+        panels=panels,
+        table=dict(columns=["dataset", "platform", "molecules", "genes", "wall time", "CPU time", "peak RSS",
+                            "runs", "load", "benchmark id"], rows=rows)))
 
 
-@both_modes
-def fig_threads(out, mode, t):
+def chart_threads(out: Path):
+    """Thread sweep (remeasure.py), current version."""
     df = remeasured()
-    sw = df[df.exp == "sweep"]
+    sw = df[(df.exp == "sweep") & (df.version == "rc")]
     src("threads", REMEASURE)
     if sw.empty:
         return
-    fig, axes = plt.subplots(1, 2, figsize=(7.6, 3.3))
     dsets = list(dict.fromkeys(sw.dataset))
-    for i, ds in enumerate(dsets):
-        c = t["s"][i]
-        for v, ls, mf in (("rc", "-", c), ("old", "--", "none")):
-            s = sw[(sw.dataset == ds) & (sw.version == v)].sort_values("threads")
-            if s.empty:
-                continue
-            lab = f"{short(ds)} ({s.n_molecules.iloc[0] if 'n_molecules' in s else ''})"
-            lab = f"{short(ds)}, {NEW if v == 'rc' else OLD}"
-            for ax, col in zip(axes, ("wall_s", "cpu_s")):
-                ax.plot(s.threads, s[col], ls=ls, color=c, marker="o", markersize=5,
-                        markerfacecolor=mf, markeredgecolor=c, label=lab)
-        # ideal scaling from the 1-thread wall time of cpp-0.9.0
-        s = sw[(sw.dataset == ds) & (sw.version == "rc")].sort_values("threads")
-        if not s.empty:
-            t1 = s.wall_s.iloc[0]
-            th = np.array([1, 16])
-            axes[0].plot(th, t1 / th, ls=":", lw=1, color=t["muted"])
-    t1 = sw[(sw.dataset == dsets[0]) & (sw.version == "rc") & (sw.threads == 1)].wall_s.iloc[0]
-    axes[0].text(9.5, t1 / 9.5 * 0.62, "ideal", fontsize=7.5, color=t["muted"], ha="center")
-    for ax, ylab, title in zip(axes, ("wall time, s", "CPU time (user + sys), s"),
-                               ("Wall time vs threads", "CPU time vs threads")):
-        log_axis(ax)
-        ax.set_xticks([1, 2, 4, 8, 16])
-        ax.set_xticklabels(["1", "2", "4", "8", "16"])
-        ax.set_xlabel("threads (8 physical cores)")
-        ax.set_ylabel(ylab)
-        ax.set_title(title)
-        ax.axvline(8, color=t["axis"], lw=0.8, zorder=0)
-    h, l = axes[1].get_legend_handles_labels()
-    fig.legend(h, l, loc="lower center", ncol=2, bbox_to_anchor=(0.5, -0.17))
-    fig.tight_layout()
-    save(fig, out, "threads", mode)
+    mol = {ds: metrics("rc1636-real", ds)["dataset"]["n_molecules"] for ds in dsets}
+    label = {ds: f"{name(ds)}, {size_tag(mol[ds])}" for ds in dsets}
+    panels, rows = [], []
+    for col, ylab, title in (("wall_s", "wall time, s", "Wall time vs threads"),
+                             ("cpu_s", "CPU time (user + sys), s", "CPU time vs threads")):
+        series, refs = [], []
+        for i, ds in enumerate(dsets):
+            s = sw[sw.dataset == ds].sort_values("threads")
+            t1 = float(s[s.threads == 1][col].iloc[0])
+            pts = []
+            for _, r in s.iterrows():
+                v = float(r[col])
+                extra = (f"{t1 / v:.1f}× vs 1 thread" if col == "wall_s"
+                         else f"{(v / t1 - 1) * 100:+.0f} % vs 1 thread")
+                pts.append(dict(x=int(r.threads), y=v, xTitle=f"{int(r.threads)} thread" +
+                                ("s" if r.threads > 1 else ""), yText=fmt_s(v),
+                                rowLabel=f"{label[ds]} · {extra} · load {r.load1_start:.1f}"))
+            series.append(dict(name=label[ds], color=i, marker="circle", line="solid", points=pts))
+            if col == "wall_s":
+                refs.append(dict(type="line", points=[[1, t1], [16, t1 / 16]], dash="dotted",
+                                 label="ideal" if i == 0 else None, labelAt=[2.6, t1 / 2.6]))
+        refs.append(dict(type="vline", x=8, label="8 cores"))
+        panels.append(dict(title=title, height=300, hover="x",
+                           x=dict(label="threads", log=True, fmt="plain", ticks=[1, 2, 4, 8, 16], min=0.85, max=18),
+                           y=dict(label=ylab, log=True, fmt="plain"), series=series, refs=refs))
+    for _, r in sw.sort_values(["dataset", "threads"]).iterrows():
+        rows.append([label[r.dataset], int(r.threads), fmt_s(r.wall_s), fmt_s(r.cpu_s), fmt_mem(r.rss_mib),
+                     f"{r.load1_start:.1f}"])
+    write_chart(out, "threads", dict(
+        columns=2, legend=[dict(name=label[ds], color=i, marker="circle", line="solid")
+                           for i, ds in enumerate(dsets)] +
+        [dict(name="ideal scaling", color="muted", line="dotted")],
+        panels=panels,
+        table=dict(columns=["dataset", "threads", "wall time", "CPU time", "peak RSS", "load at start"],
+                   rows=rows)))
+    NUMBERS["threads_sweep"] = {f"{ds}/t{int(r.threads)}": dict(wall=float(r.wall_s), cpu=float(r.cpu_s))
+                                for ds in dsets for _, r in sw[sw.dataset == ds].iterrows()}
 
 
 GENE_FAMILIES = [
@@ -322,92 +391,39 @@ GENE_FAMILIES = [
 ]
 
 
-@both_modes
-def fig_genes(out, mode, t):
+def chart_genes(out: Path):
+    """Wall time and peak RSS vs gene-panel size, simulated families, current version."""
     df = runtime_table()
     d = df[df.threads == 6].set_index("dataset")
     src("time_vs_genes", RC / "tables/runtime.csv", RUNS / "rc1636-sim", DATA / "sim")
-    fig, axes = plt.subplots(1, 2, figsize=(7.6, 3.5))
-    for i, (lab, dss) in enumerate(GENE_FAMILIES):
-        s = d.loc[dss].sort_values("n_genes")
-        c = t["s"][i]
-        for ax, (new, old) in zip(axes, (("wall_rc", "wall_old"), ("rss_rc_mib", "rss_old_mib"))):
-            ax.plot(s.n_genes, s[new], color=c, marker="o", markersize=5, label=f"{lab}, {NEW}")
-            ax.plot(s.n_genes, s[old], color=c, ls="--", marker="o", markersize=5,
-                    markerfacecolor="none", label=f"{lab}, {OLD}")
-    for ax, ylab, title in zip(axes, ("wall time, s", "peak memory (RSS), MiB"),
-                               ("Wall time vs gene panel (6 threads)",
-                                "Peak memory vs gene panel (6 threads)")):
-        log_axis(ax)
-        ax.set_xlabel("genes in the panel")
-        ax.set_ylabel(ylab)
-        ax.set_title(title)
-    h = [Line2D([], [], color=t["s"][i], lw=2, label=lab) for i, (lab, _) in enumerate(GENE_FAMILIES)]
-    h += [Line2D([], [], color=t["ink2"], marker="o", label=NEW + " (solid)"),
-          Line2D([], [], color=t["ink2"], ls="--", marker="o", markerfacecolor="none",
-                 label=OLD + " (dashed)")]
-    fig.legend(handles=h, loc="lower center", ncol=2, bbox_to_anchor=(0.5, -0.2))
-    fig.tight_layout()
-    save(fig, out, "time_vs_genes", mode)
-
-
-@both_modes
-def fig_accuracy(out, mode, t):
-    p = RC / "tables/quality_sim.csv"
-    q = pd.read_csv(p)
-    q = q[q.threads == 6]
-    src("accuracy_sim", p, RUNS / "rc1636-sim", RUNS / "v0083-sim")
-    fig, ax = plt.subplots(figsize=(4.6, 4.3))
-    gen = q.dataset.str.startswith("strec").map({True: "strec", False: "trivial"})
-    for i, (g, lab) in enumerate((("trivial", "geometric scenes (trivial.py)"),
-                                  ("strec", "tissue-like (strec.py)"))):
-        s = q[gen == g]
-        ax.scatter(s.accuracy_1to1_old, s.accuracy_1to1_rc, s=34, color=t["s"][i],
-                   marker="os"[i], edgecolors=t["surface"], linewidths=0.6, label=lab, zorder=3)
-    lo = min(q.accuracy_1to1_old.min(), q.accuracy_1to1_rc.min()) - 0.03
-    ax.plot([lo, 1], [lo, 1], color=t["muted"], lw=1, ls=":", zorder=1)
-    ax.set_xlim(lo, 1.0)
-    ax.set_ylim(lo, 1.0)
-    ax.set_aspect("equal")
-    ax.set_xlabel(f"{OLD}: 1-to-1 accuracy (fraction)")
-    ax.set_ylabel(f"{NEW}: 1-to-1 accuracy (fraction)")
-    ax.set_title("Accuracy vs ground truth (simulated)")
-    ax.legend(loc="lower right")
-    fig.tight_layout()
-    save(fig, out, "accuracy_sim", mode)
-
-
-@both_modes
-def fig_determinism(out, mode, t):
-    ds = "iss_mouse_hippocampus_quick"
-    rows = []
-    for run, lab, v in (("v0083-real", f"{OLD}\n6 threads", "old"), ("v0083-t1", f"{OLD}\n1 thread", "old"),
-                        ("rc1636-real", f"{NEW}\n6 threads", "rc"), ("rc1636-t1", f"{NEW}\n1 thread", "rc")):
-        m = metrics(run, ds)
-        src("determinism", RUNS / run / ds / "metrics.json")
-        for r in m["reps"]:
-            rows.append((lab, v, r["n_cells"], r["rep"]))
-    fig, ax = plt.subplots(figsize=(6.4, 2.5))
-    labels = list(dict.fromkeys(r[0] for r in rows))
-    for i, lab in enumerate(labels[::-1]):
-        pts = [r for r in rows if r[0] == lab]
-        c = t["s"][0] if pts[0][1] == "rc" else t["base"]
-        xs = [p[2] for p in pts]
-        jit = np.linspace(-0.12, 0.12, len(xs)) if len(set(xs)) > 1 else np.zeros(len(xs))
-        ax.scatter(xs, i + jit, s=46, color=c, edgecolors=t["surface"], linewidths=0.8, zorder=3)
-        txt = f"{len(xs)} runs: " + ", ".join(f"{x:,}" for x in xs) if len(xs) > 1 else f"{xs[0]:,}"
-        if len(xs) > 1 and len(set(xs)) == 1:
-            txt = f"{len(xs)} runs, all {xs[0]:,} (identical output)"
-        ax.text(max(xs) + 40, i, txt, va="center", fontsize=8, color=t["ink2"])
-    ax.set_yticks(range(len(labels)))
-    ax.set_yticklabels(labels[::-1], fontsize=8.5)
-    ax.set_ylim(-0.6, len(labels) - 0.4)
-    ax.set_xlim(9900, 11250)
-    ax.grid(axis="y", visible=False)
-    ax.set_xlabel("cells found (ISS mouse hippocampus, 82k molecules)")
-    ax.set_title("Same input, repeated runs")
-    fig.tight_layout()
-    save(fig, out, "determinism_iss", mode)
+    panels, rows = [], []
+    for col, ylab, title, fmt in (("wall_rc", "wall time, s", "Wall time vs gene panel (6 threads)", fmt_s),
+                                  ("rss_rc_mib", "peak memory (RSS), MiB", "Peak memory vs gene panel (6 threads)",
+                                   fmt_mem)):
+        series = []
+        for i, (fam, dss) in enumerate(GENE_FAMILIES):
+            s = d.loc[dss].sort_values("n_genes")
+            pts = [dict(x=int(r.n_genes), y=float(r[col]), title=ds,
+                        rows=[[fmt(r[col]), title.split(" vs")[0].lower()], [f"{int(r.n_genes):,}", "genes"],
+                              [f"{int(r.n_molecules):,}", "molecules"],
+                              [fmt_s(r.wall_rc) if col != "wall_rc" else fmt_mem(r.rss_rc_mib),
+                               "wall time" if col != "wall_rc" else "peak RSS"],
+                              [f"{int(r.n_rc)}", "runs, median shown"], [load_txt(r.load_rc), "mean 1-min load"],
+                              [fam, "family"]])
+                   for ds, r in s.iterrows()]
+            series.append(dict(name=fam, color=i, marker="circle", line="solid", points=pts))
+        panels.append(dict(title=title, height=300, x=dict(label="genes in the panel", log=True),
+                           y=dict(label=ylab, log=True, fmt="plain"), series=series))
+    for fam, dss in GENE_FAMILIES:
+        for ds, r in d.loc[dss].sort_values("n_genes").iterrows():
+            rows.append([fam, ds, f"{int(r.n_genes):,}", f"{int(r.n_molecules):,}", fmt_s(r.wall_rc),
+                         fmt_mem(r.rss_rc_mib), int(r.n_rc)])
+    write_chart(out, "time_vs_genes", dict(
+        columns=2, legend=[dict(name=f, color=i, marker="circle", line="solid")
+                           for i, (f, _) in enumerate(GENE_FAMILIES)],
+        panels=panels,
+        table=dict(columns=["family", "dataset", "genes", "molecules", "wall time", "peak RSS", "runs"],
+                   rows=rows)))
 
 
 ADMIX_LABEL = {
@@ -443,27 +459,27 @@ def admix_rows() -> pd.DataFrame:
     return q.sort_values("admix_rc")
 
 
-@both_modes
-def fig_celladmix(out, mode, t):
+def chart_celladmix(out: Path):
+    """cellAdmix total rate per dataset and the top pairs on the Xenium lung crop."""
     q = admix_rows()
     src("celladmix", RC / "tables/quality_real.csv")
-    fig, axes = plt.subplots(2, 1, figsize=(7.0, 7.4), gridspec_kw={"height_ratios": [len(q), 8]})
-    ax = axes[0]
-    y = np.arange(len(q))
-    for i, (_, r) in enumerate(q.iterrows()):
-        ax.plot([r.admix_old * 100, r.admix_rc * 100], [i, i], color=t["axis"], lw=1.5, zorder=1)
-    ax.scatter(q.admix_old * 100, y, s=40, facecolors="none", edgecolors=t["base"], linewidths=1.3,
-               label=OLD, zorder=2)
-    ax.scatter(q.admix_rc * 100, y, s=40, color=t["s"][0], label=NEW, zorder=3)
-    ax.set_yticks(y)
-    ax.set_yticklabels([ADMIX_LABEL.get(d, d) for d in q.dataset], fontsize=8)
-    ax.grid(axis="y", visible=False)
-    ax.set_xlabel("admixed molecules, % of assigned (lower is cleaner)")
-    ax.set_title("cellAdmix: total admixture rate")
-    ax.legend(loc="lower right")
+    cats = [ADMIX_LABEL.get(d, d) for d in q.dataset]
+    old_pts, new_pts, links, rows = [], [], [], []
+    for c, (_, r) in zip(cats, q.iterrows()):
+        tip = [[f"{r.admix_rc * 100:.2f} %", NEW], [f"{r.admix_old * 100:.2f} %", OLD],
+               [f"{int(r.cells_rc):,}", f"cells ({NEW})"], [f"{int(r.n_rc)}", "runs, mean shown"],
+               [r.dataset, "benchmark id"]]
+        new_pts.append(dict(x=float(r.admix_rc * 100), y=c, title=c, rows=tip))
+        old_pts.append(dict(x=float(r.admix_old * 100), y=c, title=c, rows=[tip[1], tip[0]] + tip[2:]))
+        links.append(dict(x1=float(r.admix_old * 100), x2=float(r.admix_rc * 100), y=c))
+        rows.append([c, f"{r.admix_rc * 100:.2f} %", f"{r.admix_old * 100:.2f} %", f"{int(r.cells_rc):,}",
+                     int(r.n_rc)])
+    top = dict(title="cellAdmix: total admixture rate", height=len(cats) * 24 + 60, marginLeft=200,
+               x=dict(label="admixed molecules, % of assigned (lower is cleaner)", fmt="plain"),
+               y=dict(type="band", categories=cats), links=links,
+               series=[dict(name=OLD, color="base", marker="circle", open=True, points=old_pts),
+                       dict(name=NEW, color=0, marker="circle", points=new_pts)])
 
-    # per-pair rates for one dataset (cell-type pairs are fixed across versions)
-    ax = axes[1]
     ds = "xenium_lung_cancer_admix"
     pairs = defaultdict(lambda: {"rc": [], "old": []})
     for run, v in (("rc1636-real", "rc"), ("v0083-real", "old")):
@@ -471,23 +487,28 @@ def fig_celladmix(out, mode, t):
         for r in metrics(run, ds)["reps"]:
             for pr in r["celladmix"]["pairs"]:
                 pairs[(pr["source"], pr["target"])][v].append(pr["rate"])
-    rows = [(k, np.mean(v["rc"]) if v["rc"] else np.nan, np.mean(v["old"]) if v["old"] else np.nan)
-            for k, v in pairs.items()]
-    rows = sorted(rows, key=lambda r: np.nan_to_num(r[1]))[-8:]
-    y = np.arange(len(rows))
-    for i, (_, a, b) in enumerate(rows):
-        ax.plot([b * 100, a * 100], [i, i], color=t["axis"], lw=1.5, zorder=1)
-    ax.scatter([r[2] * 100 for r in rows], y, s=40, facecolors="none", edgecolors=t["base"],
-               linewidths=1.3, zorder=2)
-    ax.scatter([r[1] * 100 for r in rows], y, s=40, color=t["s"][0], zorder=3)
+    prs = [(k, np.mean(v["rc"]) if v["rc"] else np.nan, np.mean(v["old"]) if v["old"] else np.nan)
+           for k, v in pairs.items()]
+    prs = sorted(prs, key=lambda r: np.nan_to_num(r[1]))[-8:]
     lab = lambda c: c.replace("cluster_", "")  # noqa: E731
-    ax.set_yticks(y)
-    ax.set_yticklabels([f"type {lab(s)} → type {lab(tg)}" for (s, tg), _, _ in rows], fontsize=8)
-    ax.grid(axis="y", visible=False)
-    ax.set_xlabel("molecules of the source type in target cells, %")
-    ax.set_title("Xenium lung (550k): top source → target pairs")
-    fig.tight_layout()
-    save(fig, out, "celladmix", mode)
+    pcats = [f"type {lab(s)} → type {lab(t)}" for (s, t), _, _ in prs]
+    po, pn, pl = [], [], []
+    for c, (_, a, b) in zip(pcats, prs):
+        tip = [[f"{a * 100:.2f} %", NEW], [f"{b * 100:.2f} %", OLD], ["Xenium lung (550k)", "dataset"]]
+        pn.append(dict(x=float(a * 100), y=c, title=c, rows=tip))
+        po.append(dict(x=float(b * 100), y=c, title=c, rows=[tip[1], tip[0], tip[2]]))
+        pl.append(dict(x1=float(b * 100), x2=float(a * 100), y=c))
+        rows.append([f"Xenium lung (550k): {c}", f"{a * 100:.2f} %", f"{b * 100:.2f} %", "", ""])
+    bottom = dict(title="Xenium lung (550k): top source → target pairs", height=len(pcats) * 24 + 60,
+                  marginLeft=200, x=dict(label="molecules of the source type in target cells, %", fmt="plain"),
+                  y=dict(type="band", categories=pcats), links=pl,
+                  series=[dict(name=OLD, color="base", marker="circle", open=True, points=po),
+                          dict(name=NEW, color=0, marker="circle", points=pn)])
+    write_chart(out, "celladmix", dict(
+        columns=1, legend=[dict(name=NEW, color=0, marker="circle"),
+                           dict(name=OLD, color="base", marker="circle", open=True)],
+        panels=[top, bottom],
+        table=dict(columns=["dataset / pair", f"rate {NEW}", f"rate {OLD}", "cells", "runs"], rows=rows)))
     NUMBERS["celladmix"] = {d: {"rc": float(a), "old": float(b)}
                             for d, a, b in zip(q.dataset, q.admix_rc, q.admix_old)}
 
@@ -500,15 +521,12 @@ SEG_EXAMPLES = [
     ("cosmx_nsclc_lung5_rep1_quick", "CosMx · human lung cancer", 100),
     ("iss_mouse_hippocampus_quick", "ISS · mouse hippocampus", 150),
 ]
+NCV_RUNS = DATA / "docs-figures/ncv"   # ncv_runs.py: the same runs with NCV colours on
 SEG_THEMES = {
-    "dark": dict(bg="#14161b", ink="#e8e6df", sub="#b5b3aa", noise="#62656c", line="#ffffff",
-                 line_alpha=0.7, cells=["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181",
-                                        "#2fbf2f", "#9085e9", "#e66767", "#5fc3d6", "#c0b23a"]),
-    "light": dict(bg="#fcfcfb", ink="#0b0b0b", sub="#52514e", noise="#b5b3aa", line="#1b1b1b",
-                  line_alpha=0.6, cells=["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4",
-                                         "#008300", "#4a3aa7", "#e34948", "#1f9fb8", "#9a8a00"]),
+    "dark": dict(bg="#14161b", ink="#e8e6df", sub="#b5b3aa", line="#ffffff", line_alpha=0.75),
+    "light": dict(bg="#fcfcfb", ink="#0b0b0b", sub="#52514e", line="#1b1b1b", line_alpha=0.7),
 }
-SEG_COLORS = SEG_THEMES["dark"]["cells"]
+NOISE_MUTE = 0.78   # noise molecules: their NCV colour blended this far toward the background
 
 
 def densest_window(x, y, size, step=None):
@@ -526,31 +544,19 @@ def densest_window(x, y, size, step=None):
     return arg
 
 
-def color_cells(centers: pd.DataFrame) -> dict:
-    """Greedy colouring so that neighbouring cells get different colours."""
-    from scipy.spatial import cKDTree
-    ids = list(centers.index)
-    if not ids:
-        return {}
-    pts = centers[["x", "y"]].to_numpy()
-    tree = cKDTree(pts)
-    k = min(9, len(ids))
-    _, nn = tree.query(pts, k=k)
-    nn = np.atleast_2d(nn)
-    rng = np.random.default_rng(7)
-    col = {}
-    for i in rng.permutation(len(ids)):
-        used = {col.get(ids[j]) for j in nn[i][1:]}
-        free = [c for c in range(len(SEG_COLORS)) if c not in used]
-        col[ids[i]] = (free or list(range(len(SEG_COLORS))))[rng.integers(len(free) if free else len(SEG_COLORS))]
-    return {c: SEG_COLORS[v] for c, v in col.items()}
+def hex_rgb(colors: pd.Series) -> np.ndarray:
+    h = colors.str.lstrip("#")
+    return np.stack([h.str[i:i + 2].map(lambda v: int(v, 16)).to_numpy() for i in (0, 2, 4)], axis=1) / 255
 
 
 def seg_window(ds: str, size: float) -> dict:
-    """Molecules, cell colours and polygons of the densest size x size window."""
+    """Molecules with NCV colours and the cell polygons of the densest size x size window."""
     import shapely
-    base = RUNS / "rc1636-real" / ds / "rep0" / "seg"
-    src("segmentation_examples", base / "molecules.parquet", base / "cell_boundaries.parquet")
+    base = NCV_RUNS / ds / "seg"
+    if not (base / "molecules.parquet").is_file():
+        raise SystemExit(f"{base}: missing; run docs_figures/ncv_runs.py first")
+    src("segmentation_examples", base / "molecules.parquet", base / "cell_boundaries.parquet",
+        NCV_RUNS / ds / "run.json")
     m = pd.read_parquet(base / "molecules.parquet")
     is3d = "z" in m.columns
     x0, y0 = densest_window(m.x.to_numpy(), m.y.to_numpy(), size)
@@ -558,7 +564,8 @@ def seg_window(ds: str, size: float) -> dict:
     if is3d:  # 3-D data: show the most populated z-plane
         zs = w.z.value_counts()
         w = w[w.z == float(zs.index[zs.argmax()])]
-    cells = w[~w.is_noise & w.cell.notna()]
+    noise = w.is_noise | w.cell.isna()
+    cells = w[~noise]
     b = pd.read_parquet(base / "cell_boundaries.parquet")
     geoms = shapely.from_wkb(b.geometry.to_numpy())
     keep = shapely.intersects(geoms, shapely.box(x0, y0, x0 + size, y0 + size))
@@ -570,8 +577,7 @@ def seg_window(ds: str, size: float) -> dict:
         for part in getattr(g, "geoms", [g]):
             if part.geom_type == "Polygon" and not part.is_empty:
                 rings.append(np.asarray(part.exterior.coords))
-    return dict(x0=x0, y0=y0, w=w, cells=cells, noise=w[w.is_noise | w.cell.isna()], is3d=is3d,
-                order=color_cells(cells.groupby("cell")[["x", "y"]].mean()), rings=rings)
+    return dict(x0=x0, y0=y0, w=w, cells=cells, noise=w[noise], is3d=is3d, rings=rings)
 
 
 def fig_segmentation(out: Path):
@@ -581,14 +587,16 @@ def fig_segmentation(out: Path):
         plt.rcdefaults()
         plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 9})
         bg, ink = th["bg"], th["ink"]
+        bg_rgb = np.array(matplotlib.colors.to_rgb(bg))
         fig, axes = plt.subplots(2, 2, figsize=(7.6, 8.1), facecolor=bg)
         for ax, (ds, title, size) in zip(axes.ravel(), SEG_EXAMPLES):
             d = wins[ds]
             x0, y0, w = d["x0"], d["y0"], d["w"]
             ms = float(np.clip(2.3e4 / max(len(w), 1), 0.8, 9))
-            ax.scatter(d["noise"].x, d["noise"].y, s=ms, color=th["noise"], linewidths=0)
-            col = {c: th["cells"][SEG_COLORS.index(v)] for c, v in d["order"].items()}
-            ax.scatter(d["cells"].x, d["cells"].y, s=ms, c=d["cells"].cell.map(col), linewidths=0)
+            nz = d["noise"]
+            muted = hex_rgb(nz.ncv_color) * (1 - NOISE_MUTE) + bg_rgb * NOISE_MUTE
+            ax.scatter(nz.x, nz.y, s=ms, c=muted, linewidths=0)
+            ax.scatter(d["cells"].x, d["cells"].y, s=ms, c=hex_rgb(d["cells"].ncv_color), linewidths=0)
             for r in d["rings"]:
                 ax.plot(r[:, 0], r[:, 1], color=th["line"], lw=0.6, alpha=th["line_alpha"])
             ax.set_xlim(x0, x0 + size)
@@ -608,14 +616,14 @@ def fig_segmentation(out: Path):
                     va="bottom", fontsize=8, zorder=6)
             NUMBERS.setdefault("segmentation_examples", {})[ds] = {
                 "window_um": [float(x0), float(y0), size], "molecules": int(len(w)),
-                "noise_fraction": float(len(d["noise"]) / max(len(w), 1)),
+                "noise_fraction": float(len(nz) / max(len(w), 1)),
                 "cells_with_molecules": int(d["cells"].cell.nunique()), "polygons": len(d["rings"])}
         fig.subplots_adjust(left=0.02, right=0.98, top=0.95, bottom=0.04, wspace=0.06, hspace=0.16)
         buf = io.BytesIO()
         fig.savefig(buf, format="png", dpi=130, facecolor=bg)
         plt.close(fig)
-        # palettised PNG: a fraction of the size, no visible loss for flat colours
-        Image.open(buf).convert("RGB").quantize(colors=96, method=Image.Quantize.MEDIANCUT,
+        # palettised PNG: a fraction of the size, no visible loss at this marker size
+        Image.open(buf).convert("RGB").quantize(colors=256, method=Image.Quantize.MEDIANCUT,
                                                 dither=Image.Dither.NONE).save(
             out / f"segmentation_examples-{mode}.png", optimize=True)
 
@@ -693,9 +701,12 @@ def fig_umap(out, mode, t):
     save(fig, out, "umap", mode, fmt="png", dpi=140)
 
 
-# ---- profiling figures ----
 
-LADDERS = {"lung": "Xenium lung, 377 genes", "prime5k": "Xenium Prime 5K, 5,078 genes"}
+
+# ---- profiling ----
+
+LADDERS = {"lung": "Xenium lung slide, 377 genes", "prime5k": "Xenium Prime 5K slide, 5,078 genes"}
+WTX = "cosmx_wtx_colon_full"
 
 
 def scaling_jobs(report: Path) -> pd.DataFrame:
@@ -707,60 +718,147 @@ def scaling_jobs(report: Path) -> pd.DataFrame:
     return j
 
 
-@both_modes
-def fig_scaling(out, mode, t):
-    after, before = scaling_jobs(PROF), scaling_jobs(PROF_BEFORE)
-    fig, grid = plt.subplots(2, 2, figsize=(7.6, 6.6))
-    axes = [grid[0, 0], grid[0, 1], grid[1, 0]]
-    grid[1, 1].axis("off")
-    for i, sl in enumerate(LADDERS):
-        c = t["s"][i]
-        a8 = after[(after.slide == sl) & (after.threads == 8)].sort_values("molecules_loaded")
-        a1 = after[(after.slide == sl) & (after.threads == 1)].sort_values("molecules_loaded")
-        b8 = before[(before.slide == sl) & (before.threads == 8)].sort_values("molecules_loaded")
-        ax = axes[0]
-        ax.plot(a8.molecules_loaded, a8.cpu_s, color=c, marker="o", markersize=5)
-        ax.plot(b8.molecules_loaded, b8.cpu_s, color=c, ls="--", marker="o", markersize=5,
-                markerfacecolor="none")
-        ax = axes[1]
-        ax.plot(a8.molecules_loaded, a8.wall_s, color=c, marker="o", markersize=5)
-        if len(a1):
-            ax.plot(a1.molecules_loaded, a1.wall_s, color=c, ls=":", marker="s", markersize=4.5,
-                    markerfacecolor="none")
-        ax = axes[2]
-        ax.plot(a8.molecules_loaded, a8.peak_rss_kb / 2**20, color=c, marker="o", markersize=5)
-        ax.plot(b8.molecules_loaded, b8.peak_rss_kb / 2**20, color=c, ls="--", marker="o",
-                markersize=5, markerfacecolor="none")
-    # whole-transcriptome slide as a single point
-    w = after[after.dataset == "cosmx_wtx_colon_full"]
-    wb = before[before.dataset == "cosmx_wtx_colon_full"]
-    for ax, col, f in ((axes[0], "cpu_s", 1), (axes[2], "peak_rss_kb", 2**-20)):
-        ax.scatter(w.molecules_loaded, w[col] * f, marker="D", s=34, color=t["s"][2], zorder=4)
-        ax.scatter(wb.molecules_loaded, wb[col] * f, marker="D", s=30, facecolors="none",
-                   edgecolors=t["s"][2], zorder=4)
-    axes[1].scatter(w.molecules_loaded, w.wall_s, marker="D", s=34, color=t["s"][2], zorder=4)
-    for ax, ylab, title in zip(axes, ("CPU time, s", "wall time, s", "peak memory (RSS), GiB"),
-                               ("CPU time (8 threads)", "Wall time, 8 vs 1 thread",
-                                "Peak memory (8 threads)")):
-        log_axis(ax)
-        ax.set_xlabel("molecules")
-        ax.set_ylabel(ylab)
-        ax.set_title(title)
-    # ~linear guide on the CPU panel
-    xs = np.array([1e5, 1e7])
-    axes[0].plot(xs, 80 * xs / 1e5, color=t["muted"], lw=1, ls=":")
-    axes[0].text(2.2e6, 80 * 2.2e6 / 1e5 * 1.3, "linear", color=t["muted"], fontsize=7.5, rotation=30)
-    h = [Line2D([], [], color=t["s"][i], lw=2, label=lab) for i, lab in enumerate(LADDERS.values())]
-    h += [Line2D([], [], color=t["s"][2], marker="D", ls="", label="CosMx WTx, 18,935 genes"),
-          Line2D([], [], color=t["ink2"], marker="o", label=f"{NEW}, 8 threads"),
-          Line2D([], [], color=t["ink2"], ls="--", marker="o", markerfacecolor="none",
-                 label="before optimisation (e45fddc), 8 threads"),
-          Line2D([], [], color=t["ink2"], ls=":", marker="s", markerfacecolor="none",
-                 label=f"{NEW}, 1 thread")]
-    fig.tight_layout()
-    grid[1, 1].legend(handles=h, loc="center left", bbox_to_anchor=(0.0, 0.5))
-    save(fig, out, "scaling", mode)
+def rung_name(ds: str, molecules: float) -> str:
+    if ds == WTX:
+        return "CosMx WTx colon slide"
+    slide = {"lung": "Xenium lung slide", "prime5k": "Xenium Prime 5K slide"}[ds.split("_")[0]]
+    return f"{slide} (whole)" if ds.endswith("_all") else f"{slide}, {size_tag(molecules)} subset"
 
+
+def load1(v) -> str:
+    try:
+        return f"{json.loads(v)[0]:.1f}"
+    except Exception:  # noqa: BLE001
+        return str(v)
+
+
+def chart_scaling(out: Path):
+    """Real-size ladders: CPU time, wall time and peak RSS vs molecules."""
+    after, before = scaling_jobs(PROF), scaling_jobs(PROF_BEFORE)
+    ver = {"after": f"{NEW} (profiling build 20bc45c)", "before": "before optimisation (e45fddc)"}
+
+    def pts(df, col, f, which, threads):
+        out_ = []
+        for _, r in df.sort_values("molecules_loaded").iterrows():
+            v = float(r[col]) * f
+            vtxt = fmt_mem(v * 1024) if col == "peak_rss_kb" else fmt_s(v)
+            out_.append(dict(x=int(r.molecules_loaded), y=v, title=rung_name(r.dataset, r.molecules_loaded),
+                             rows=[[vtxt, {"cpu_s": "CPU time", "wall_s": "wall time",
+                                           "peak_rss_kb": "peak RSS"}[col]],
+                                   [f"{int(r.molecules_loaded):,}", "molecules"],
+                                   [f"{int(r.genes_loaded):,}", "genes"],
+                                   [str(threads), "threads"], [ver[which], "code"],
+                                   [load1(r.loadavg_start), "1-min load at start"]]))
+        return out_
+
+    panels = []
+    for col, f, ylab, title in (("cpu_s", 1, "CPU time, s", "CPU time (8 threads)"),
+                                ("wall_s", 1, "wall time, s", "Wall time, 8 and 1 thread"),
+                                ("peak_rss_kb", 2**-20, "peak memory (RSS), GiB", "Peak memory (8 threads)")):
+        series = []
+        for i, sl in enumerate(LADDERS):
+            a8 = after[(after.slide == sl) & (after.threads == 8)]
+            series.append(dict(name=f"{LADDERS[sl]}, 8 threads", color=i, marker="circle", line="solid",
+                               points=pts(a8, col, f, "after", 8)))
+            if col == "wall_s":
+                a1 = after[(after.slide == sl) & (after.threads == 1)]
+                series.append(dict(name=f"{LADDERS[sl]}, 1 thread", color=i, marker="square", line="dotted",
+                                   open=True, size=3.5, points=pts(a1, col, f, "after", 1)))
+            else:
+                b8 = before[(before.slide == sl) & (before.threads == 8)]
+                series.append(dict(name=f"{LADDERS[sl]}, before optimisation", color=i, marker="circle",
+                                   line="dashed", open=True, size=3.5, points=pts(b8, col, f, "before", 8)))
+        series.append(dict(name="CosMx WTx, 18,935 genes", color=2, marker="diamond", size=4.5,
+                           points=pts(after[after.dataset == WTX], col, f, "after", 8)))
+        if col != "wall_s":
+            series.append(dict(name="CosMx WTx, before optimisation", color=2, marker="diamond", open=True,
+                               size=4, points=pts(before[before.dataset == WTX], col, f, "before", 8)))
+        refs = []
+        if col == "cpu_s":
+            refs.append(dict(type="line", points=[[1e5, 80], [1.1e7, 80 * 110]], dash="dotted", label="linear",
+                             labelAt=[3e6, 1100]))
+        panels.append(dict(title=title, height=290, x=dict(label="molecules", log=True),
+                           y=dict(label=ylab, log=True, fmt="plain"), series=series, refs=refs))
+    rows = []
+    for which, df in (("after", after), ("before", before)):
+        for _, r in df.sort_values(["slide", "threads", "molecules_loaded"]).iterrows():
+            rows.append([rung_name(r.dataset, r.molecules_loaded), ver[which], int(r.threads),
+                         f"{int(r.molecules_loaded):,}", f"{int(r.genes_loaded):,}", fmt_s(r.cpu_s),
+                         fmt_s(r.wall_s), fmt_mem(r.peak_rss_kb / 1024), load1(r.loadavg_start)])
+    write_chart(out, "scaling", dict(
+        columns=2,
+        legend=[dict(name=LADDERS[sl], color=i, line="solid", marker="circle") for i, sl in enumerate(LADDERS)] +
+               [dict(name="CosMx WTx colon slide, 18,935 genes", color=2, marker="diamond"),
+                dict(name="before optimisation (open, dashed)", color="ink2", line="dashed", marker="circle",
+                     open=True),
+                dict(name="1 thread (open, dotted)", color="ink2", line="dotted", marker="square", open=True)],
+        panels=panels,
+        table=dict(columns=["rung", "code", "threads", "molecules", "genes", "CPU time", "wall time", "peak RSS",
+                            "load"], rows=rows)))
+
+
+# ---- merged per-dataset table of the Profiling page ----
+
+TABLE_DATASETS = [
+    "xenium_pancreas_377_quick", "xenium_lung_cancer_admix", "xenium_breast_rep1_dense_full",
+    "xenium_pancreas_377_full", "xenium_prime5k_ovarian_quick", "xenium_prime5k_ovarian_full",
+    "cosmx_nsclc_lung5_rep1_full", "cosmx_wtx_colon_quick", "merfish_ileum_full",
+    "iss_mouse_hippocampus_quick", "osmfish_somatosensory_quick", "starmap_visual_cortex_quick",
+]
+TABLE_RUNGS = ["lung_1M", "lung_2M", "lung_all", "prime5k_1M", "prime5k_8M", WTX]
+TABLE_BEGIN = "<!-- docs_figures:runtime-table begin (generated by make_figures.py; do not edit) -->"
+TABLE_END = "<!-- docs_figures:runtime-table end -->"
+
+
+def runtime_table_md() -> str:
+    """Benchmark crops (6 threads) and profiling ladders (8 threads), datasets in rows."""
+    df = runtime_table()
+    six = df[df.threads == 6].set_index("dataset")
+    one = df[df.threads == 1].set_index("dataset")
+    a, b = scaling_jobs(PROF), scaling_jobs(PROF_BEFORE)
+    src("runtime_table", RC / "tables/runtime.csv", DATA / "real", RUNS / "rc1636-real",
+        PROF / "summary-scaling-run/scaling_jobs.csv", PROF_BEFORE / "summary-scaling-run/scaling_jobs.csv")
+    rows = []
+    for ds in TABLE_DATASETS:
+        r = six.loc[ds]
+        o = one.loc[ds] if ds in one.index else None
+        rows.append((int(r.n_molecules), [name(ds), f"{int(r.n_molecules):,}", f"{int(r.n_genes):,}", "6",
+                                          fmt_s(r.wall_rc), fmt_s(r.cpu_rc), fmt_mem(r.rss_rc_mib),
+                                          f"{r.rss_rc_mib * 2**20 / r.n_molecules:,.0f} B",
+                                          fmt_s(None if o is None else o.wall_rc), "", ""]))
+    for ds in TABLE_RUNGS:
+        r = a[(a.dataset == ds) & (a.threads == 8)].iloc[0]
+        r1 = a[(a.dataset == ds) & (a.threads == 1)]
+        rb = b[(b.dataset == ds) & (b.threads == 8)]
+        rows.append((int(r.molecules_loaded), [
+            rung_name(ds, r.molecules_loaded), f"{int(r.molecules_loaded):,}", f"{int(r.genes_loaded):,}", "8",
+            fmt_s(r.wall_s), fmt_s(r.cpu_s), fmt_mem(r.peak_rss_kb / 1024),
+            f"{r.peak_rss_kb * 1024 / r.molecules_loaded:,.0f} B",
+            fmt_s(float(r1.wall_s.iloc[0]) if len(r1) else None),
+            fmt_s(float(rb.cpu_s.iloc[0])) if len(rb) else "",
+            fmt_mem(float(rb.peak_rss_kb.iloc[0]) / 1024) if len(rb) else ""]))
+    head = ["dataset", "molecules", "genes", "threads", "wall time", "CPU time", "peak RSS",
+            "RSS per molecule", "wall time, 1 thread", "CPU time before", "peak RSS before"]
+    lines = ["| " + " | ".join(head) + " |", "|---|" + "---:|" * (len(head) - 1)]
+    for _, r in sorted(rows, key=lambda x: x[0]):
+        lines.append("| " + " | ".join(r) + " |")
+    return "\n".join(lines)
+
+
+def update_page_table(docs: Path):
+    page = docs / "profiling.md"
+    if not page.is_file():
+        print("skip table: no", page)
+        return
+    text = page.read_text()
+    if TABLE_BEGIN not in text or TABLE_END not in text:
+        raise SystemExit(f"{page}: table markers not found")
+    pre, rest = text.split(TABLE_BEGIN, 1)
+    _, post = rest.split(TABLE_END, 1)
+    page.write_text(pre + TABLE_BEGIN + "\n\n" + runtime_table_md() + "\n\n" + TABLE_END + post)
+
+
+# ---- owner-only report: where the time goes, current bottlenecks ----
 
 PHASE_GROUPS = [("BMM iterations", {"bmm_iterations", "bmm_init"}),
                 ("molecule clustering", {"mol_clustering"}),
@@ -775,14 +873,13 @@ CROP_LABEL = {
 
 
 def group_of(phase: str) -> str:
-    for name, s in PHASE_GROUPS:
+    for name_, s in PHASE_GROUPS:
         if s and phase in s:
-            return name
+            return name_
     return "everything else"
 
 
-@both_modes
-def fig_phases(out, mode, t):
+def phase_tables():
     p = PROF / "summary-report-run/phases.csv"
     src("phases", p, PROF / "summary-scaling-run/scaling_phases.csv")
     ph = pd.read_csv(p)
@@ -791,22 +888,27 @@ def fig_phases(out, mode, t):
     ph["group"] = ph.phase.map(group_of)
     crop = ph.groupby(["dataset", "group"]).Ir.sum().unstack(fill_value=0) / 1e9
     crop = crop.loc[[d for d in CROP_LABEL if d in crop.index]][[g for g, _ in PHASE_GROUPS]]
-
     sp_ = pd.read_csv(PROF / "summary-scaling-run/scaling_phases.csv")
     sp_ = sp_[(sp_.tool == "gperf") & (sp_.threads == 8)]
     sp_["group"] = sp_.phase.map(group_of)
     real = sp_.groupby(["dataset", "group"]).cpu_s.sum().unstack(fill_value=0)
-    order = ["lung_100k", "lung_1M", "lung_4M", "lung_all", "prime5k_100k", "prime5k_1M", "prime5k_8M",
-             "cosmx_wtx_colon_full"]
+    order = ["lung_100k", "lung_1M", "lung_4M", "lung_all", "prime5k_100k", "prime5k_1M", "prime5k_8M", WTX]
     real = real.loc[[o for o in order if o in real.index]][[g for g, _ in PHASE_GROUPS]]
     real_share = real.div(real.sum(axis=1), axis=0) * 100
     mol = sp_.groupby("dataset").molecules.first()
+    NUMBERS["phases_real_share"] = real_share.round(1).to_dict(orient="index")
+    NUMBERS["phases_crop_GIr"] = crop.round(2).to_dict(orient="index")
+    return crop, real_share, mol
+
+
+@both_modes
+def fig_phases(out, mode, t):
+    crop, real_share, mol = phase_tables()
 
     def rung_label(d):
-        name = {"lung_all": "lung, whole slide", "cosmx_wtx_colon_full": "CosMx WTx slide"}.get(
-            d, d.split("_")[0])
+        nm = {"lung_all": "lung, whole slide", WTX: "CosMx WTx slide"}.get(d, d.split("_")[0])
         n = mol[d]
-        return f"{name} ({n / 1e6:.1f}M)" if n >= 1e6 else f"{name} ({n / 1e3:.0f}k)"
+        return f"{nm} ({n / 1e6:.1f}M)" if n >= 1e6 else f"{nm} ({n / 1e3:.0f}k)"
 
     fig, axes = plt.subplots(2, 1, figsize=(7.2, 7.0))
     cols = [t["s"][0], t["s"][1], t["s"][3], t["base"]]
@@ -819,8 +921,7 @@ def fig_phases(out, mode, t):
         y = np.arange(len(data))[::-1]
         for (g, _), c in zip(PHASE_GROUPS, cols):
             v = data[g].to_numpy()
-            ax.barh(y, v, left=left, color=c, height=0.68, edgecolor=t["surface"], linewidth=1.2,
-                    label=g)
+            ax.barh(y, v, left=left, color=c, height=0.68, edgecolor=t["surface"], linewidth=1.2, label=g)
             left += v
         ax.set_yticks(y)
         ax.set_yticklabels(labels, fontsize=8)
@@ -832,19 +933,113 @@ def fig_phases(out, mode, t):
     fig.legend(handles=h, loc="lower center", ncol=4, bbox_to_anchor=(0.5, -0.04))
     fig.tight_layout()
     save(fig, out, "phases", mode)
-    NUMBERS["phases_real_share"] = real_share.round(1).to_dict(orient="index")
-    NUMBERS["phases_crop_GIr"] = crop.round(2).to_dict(orient="index")
+
+
+OWNER_TEXT = """\
+# Owner report: where the time goes, current bottlenecks
+
+Generated by `docs_figures/make_figures.py` (not part of the public docs).
+Profiling run: `{prof}`. The figure and the tables under "Data" are
+regenerated from that run's summaries; the prose was written for the
+2026-10-01 run (`20bc45c`) and quotes its numbers; re-check it against the
+tables when the run changes.
+
+## Where the time goes
+
+![Stacked bars: instructions per phase on 20k-molecule crops and CPU share per phase at real sizes](owner/phases-light.svg)
+
+**Figure.** Top: instructions per phase on 20k-molecule crops (callgrind,
+1 thread). Bottom: share of the CPU time per phase at real sizes (gperftools,
+8 threads). "BMM iterations" is the segmentation itself; "molecule
+clustering" is the initial assignment of molecules to cell types (the MRF
+clustering or, for whole-transcriptome panels, the neighbourhood-graph
+clustering); "NCV colours" is the colour embedding used by the plots and the
+`ncv_color` output column.
+
+- On **small crops** the colour embedding dominates: 66–84 % of the
+  instructions on every panel below 1,000 genes, mostly umappp's
+  single-threaded layout optimisation. It costs a fixed amount (at most
+  20,000 anchors), so it fades at real sizes: {ncv_lung_all:.0f} % of the CPU time on the whole
+  lung slide. Skip it with `--skip-ncv-color` if you do not need the colours.
+- On **real slides** (1M molecules and more) the BMM iterations take
+  {bmm_min:.0f}–{bmm_max:.0f} % of the CPU time and molecule clustering {mc_min:.0f}–{mc_max:.0f} %; on the
+  18,935-gene CosMx slide molecule clustering takes {mc_wtx:.0f} %.
+- The **dense ICA** behind the 2,793-gene crop's huge clustering bar is the
+  1,000–3,000-gene case of the docs' Profiling › Gene panel size.
+
+## Current bottlenecks
+
+Ranked by their share of the CPU time at real sizes (whole lung slide and
+Prime 5K 8M, 8 threads).
+
+1. **BMM E-step** — about 35 % of the CPU on the whole lung slide (the E-step
+   chunk, `CategoricalSmoothed::pdf` and `exp`). Linear and 99 % parallel:
+   this is the algorithm's core work, not overhead.
+2. **Molecule clustering** — {mc_lung_all:.0f} % (lung) and {mc_p8:.0f} % (Prime 5K 8M) of the CPU,
+   super-linear (exponent {exp_mc:.2f}), because the MRF clustering needs more
+   iterations on larger slides.
+3. **BMM bookkeeping** (splitting and grouping components, hash-map updates)
+   — about 22 % of the CPU on the whole slide, mildly super-linear
+   (exponents 1.2–1.4).
+4. **NCV colour embedding** on small data — single-threaded, 61 % of the
+   instructions on a 20k crop; negligible on slides. Use `--skip-ncv-color`
+   when the colours are not needed.
+5. **Gene-rich panels** — the neighbourhood k-NN with k = genes / 10 takes
+   65 % of the CPU on the 18,935-gene CosMx slide, and panels of
+   1,000–3,000 genes still run the dense O(genes³) ICA (87 % of the
+   instructions on the 2,793-gene crop, single-threaded).
+
+Memory at the whole-slide peak (5.06 GiB heap) is spread over the molecule
+adjacency list (787 MiB), the assignment history (728 MiB), the MRF clustering
+state (383 MiB) and three copies of the molecule positions (3 × 170 MiB).
+
+## Data
+
+Share of the CPU time per phase group, % (gperftools, 8 threads):
+
+{real_table}
+
+Instructions per phase group, 10⁹ (callgrind, 1 thread, 20k-molecule crops):
+
+{crop_table}
+
+Scaling exponents (value ∝ molecules^b, gperftools, 8 threads):
+
+{exp_table}
+"""
+
+
+def md_table(df: pd.DataFrame, index_name: str, fmt="{:.1f}") -> str:
+    cols = list(df.columns)
+    lines = ["| " + " | ".join([index_name] + cols) + " |", "|---|" + "---:|" * len(cols)]
+    for i, r in df.iterrows():
+        lines.append("| " + " | ".join([str(i)] + [fmt.format(v) for v in r]) + " |")
+    return "\n".join(lines)
+
+
+def owner_report(path: Path):
+    """Write the owner-only report (outside the docs) with its figure."""
+    owner = path.parent / "owner"
+    owner.mkdir(parents=True, exist_ok=True)
+    fig_phases(owner)
+    crop, share, _ = phase_tables()
+    fits = pd.read_csv(PROF / "summary-scaling-run/scaling_fits.csv")
+    f = fits[fits.what.isin(["total", "phase_cpu"]) & (fits.tool == "gperf") & (fits.threads == 8)]
+    ex = f.pivot_table(index="name", columns="slide", values="exponent", aggfunc="first")
+    big = [d for d in share.index if d in ("lung_1M", "lung_4M", "lung_all", "prime5k_1M", "prime5k_8M")]
+    path.write_text(OWNER_TEXT.format(
+        prof=str(PROF).replace(str(DATA), "$BAYSOR_BENCH_DATA"),
+        ncv_lung_all=share.loc["lung_all", "NCV colours"],
+        bmm_min=share.loc[big, "BMM iterations"].min(), bmm_max=share.loc[big, "BMM iterations"].max(),
+        mc_min=share.loc[big, "molecule clustering"].min(), mc_max=share.loc[big, "molecule clustering"].max(),
+        mc_wtx=share.loc[WTX, "molecule clustering"], mc_lung_all=share.loc["lung_all", "molecule clustering"],
+        mc_p8=share.loc["prime5k_8M", "molecule clustering"],
+        exp_mc=float(ex.loc["mol_clustering", "lung"]) if "mol_clustering" in ex.index else float("nan"),
+        real_table=md_table(share, "rung"), crop_table=md_table(crop, "crop", "{:.2f}"),
+        exp_table=md_table(ex, "phase", "{:.2f}")))
 
 
 # --------------------------------------------------------------- tables ----
-
-TABLE_DATASETS = [
-    "xenium_pancreas_377_quick", "xenium_lung_cancer_admix", "xenium_breast_rep1_dense_full",
-    "xenium_pancreas_377_full", "xenium_prime5k_ovarian_quick", "xenium_prime5k_ovarian_full",
-    "cosmx_nsclc_lung5_rep1_full", "cosmx_wtx_colon_quick", "merfish_ileum_full",
-    "iss_mouse_hippocampus_quick", "osmfish_somatosensory_quick", "starmap_visual_cortex_quick",
-]
-
 
 def fmt_s(v):
     if v is None or (isinstance(v, float) and math.isnan(v)):
@@ -1034,8 +1229,9 @@ def write_sources() -> str:
     return "\n".join(lines) + "\n"
 
 
-FIGURES = [fig_runtime_vs_molecules, fig_threads, fig_genes, fig_accuracy, fig_determinism,
-           fig_celladmix, fig_umap, fig_scaling, fig_phases]
+
+FIGURES = [chart_runtime_vs_molecules, chart_threads, chart_genes, chart_scaling, chart_celladmix]
+IMAGES = [fig_umap, fig_segmentation]
 
 
 def main():
@@ -1043,22 +1239,26 @@ def main():
     ap.add_argument("--docs", type=Path,
                     default=Path(os.environ.get("BAYSOR_DOCS_PERF",
                                                 "/home/vpetukhov/Projects/Baysor/docs/performance")),
-                    help="docs/performance directory of a Baysor checkout (figures go to <docs>/img)")
+                    help="docs/performance directory of a Baysor checkout (charts go to <docs>/data, "
+                         "images to <docs>/img, the per-dataset table into <docs>/profiling.md)")
     ap.add_argument("--only", nargs="*", help="figure function names to run (default: all)")
     args = ap.parse_args()
-    img = args.docs / "img"
+    img, data = args.docs / "img", args.docs / "data"
     img.mkdir(parents=True, exist_ok=True)
     GEN.mkdir(exist_ok=True)
-    for fn in FIGURES + [fig_segmentation]:
+    for fn in FIGURES + IMAGES:
         if args.only and fn.__name__ not in args.only:
             continue
         print("figure:", fn.__name__, flush=True)
-        fn(img)
+        fn(data if fn in FIGURES else img)
+    update_page_table(args.docs)
+    owner_report(GEN / "owner_report.md")
     md = "# Numbers quoted in docs/performance (generated by make_figures.py)\n\n" + tables() + write_sources()
     (GEN / "tables.md").write_text(md)
     (GEN / "numbers.json").write_text(json.dumps(NUMBERS, indent=1, default=float) + "\n")
     total = sum(p.stat().st_size for p in args.docs.rglob("*") if p.is_file())
-    print(f"wrote {img} ; docs/performance total {total / 1e6:.2f} MB ; tables {GEN / 'tables.md'}")
+    print(f"wrote {img}, {data}, the table of {args.docs / 'profiling.md'} ; docs/performance total "
+          f"{total / 1e6:.2f} MB ; tables {GEN / 'tables.md'} ; owner report {GEN / 'owner_report.md'}")
 
 
 if __name__ == "__main__":

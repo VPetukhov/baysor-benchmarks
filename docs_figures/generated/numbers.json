@@ -1,4 +1,46 @@
 {
+ "threads_sweep": {
+  "xenium_pancreas_377_quick/t1": {
+   "wall": 42.81,
+   "cpu": 42.78
+  },
+  "xenium_pancreas_377_quick/t2": {
+   "wall": 22.47,
+   "cpu": 43.489999999999995
+  },
+  "xenium_pancreas_377_quick/t4": {
+   "wall": 12.12,
+   "cpu": 44.080000000000005
+  },
+  "xenium_pancreas_377_quick/t8": {
+   "wall": 7.16,
+   "cpu": 46.12
+  },
+  "xenium_pancreas_377_quick/t16": {
+   "wall": 5.85,
+   "cpu": 57.44
+  },
+  "merfish_ileum_full/t1": {
+   "wall": 346.06,
+   "cpu": 345.63
+  },
+  "merfish_ileum_full/t2": {
+   "wall": 185.89,
+   "cpu": 359.68
+  },
+  "merfish_ileum_full/t4": {
+   "wall": 104.45,
+   "cpu": 375.13
+  },
+  "merfish_ileum_full/t8": {
+   "wall": 60.03,
+   "cpu": 385.45
+  },
+  "merfish_ileum_full/t16": {
+   "wall": 49.43,
+   "cpu": 494.69
+  }
+ },
  "celladmix": {
   "xenium_breast_rep2_dense_quick": {
    "rc": 0.007872,
@@ -75,6 +117,52 @@
    "cells": 11294,
    "types": 8,
    "untyped": 2
+  }
+ },
+ "segmentation_examples": {
+  "xenium_pancreas_377_quick": {
+   "window_um": [
+    5000.00830078125,
+    1250.0013427734375,
+    100
+   ],
+   "molecules": 8379,
+   "noise_fraction": 0.0,
+   "cells_with_molecules": 105,
+   "polygons": 105
+  },
+  "merfish_ileum_quick": {
+   "window_um": [
+    -2817.122,
+    -629.1452,
+    100
+   ],
+   "molecules": 3679,
+   "noise_fraction": 0.0002718129926610492,
+   "cells_with_molecules": 220,
+   "polygons": 130
+  },
+  "cosmx_nsclc_lung5_rep1_quick": {
+   "window_um": [
+    1271.6603466796867,
+    28938.5407324218,
+    100
+   ],
+   "molecules": 44521,
+   "noise_fraction": 0.0006513780013926013,
+   "cells_with_molecules": 284,
+   "polygons": 285
+  },
+  "iss_mouse_hippocampus_quick": {
+   "window_um": [
+    8102.666666666666,
+    4526.666666666666,
+    150
+   ],
+   "molecules": 1567,
+   "noise_fraction": 0.01723037651563497,
+   "cells_with_molecules": 191,
+   "polygons": 191
   }
  },
  "phases_real_share": {
@@ -175,52 +263,6 @@
    "molecule clustering": 30.66,
    "NCV colours": 45.88,
    "everything else": 1.18
-  }
- },
- "segmentation_examples": {
-  "xenium_pancreas_377_quick": {
-   "window_um": [
-    5000.00830078125,
-    1250.0013427734375,
-    100
-   ],
-   "molecules": 8379,
-   "noise_fraction": 0.0,
-   "cells_with_molecules": 105,
-   "polygons": 105
-  },
-  "merfish_ileum_quick": {
-   "window_um": [
-    -2817.122,
-    -629.1452,
-    100
-   ],
-   "molecules": 3679,
-   "noise_fraction": 0.0002718129926610492,
-   "cells_with_molecules": 220,
-   "polygons": 130
-  },
-  "cosmx_nsclc_lung5_rep1_quick": {
-   "window_um": [
-    1271.6603466796867,
-    28938.5407324218,
-    100
-   ],
-   "molecules": 44521,
-   "noise_fraction": 0.0006513780013926013,
-   "cells_with_molecules": 284,
-   "polygons": 285
-  },
-  "iss_mouse_hippocampus_quick": {
-   "window_um": [
-    8102.666666666666,
-    4526.666666666666,
-    150
-   ],
-   "molecules": 1567,
-   "noise_fraction": 0.01723037651563497,
-   "cells_with_molecules": 191,
-   "polygons": 191
   }
  },
  "table_datasets": {
