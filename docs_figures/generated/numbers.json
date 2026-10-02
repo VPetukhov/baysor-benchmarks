@@ -1,0 +1,871 @@
+{
+ "celladmix": {
+  "xenium_breast_rep2_dense_quick": {
+   "rc": 0.007872,
+   "old": 0.007515
+  },
+  "xenium_mouse_brain_ff_admix": {
+   "rc": 0.020504,
+   "old": 0.021397
+  },
+  "xenium_mouse_brain_ff_edge_quick": {
+   "rc": 0.029082,
+   "old": 0.028975
+  },
+  "xenium_prime5k_ovarian_quick": {
+   "rc": 0.037267,
+   "old": 0.033819
+  },
+  "xenium_pancreas_377_quick": {
+   "rc": 0.045504,
+   "old": 0.047244
+  },
+  "xenium_lung_cancer_admix": {
+   "rc": 0.052794,
+   "old": 0.053964
+  },
+  "xenium_breast_rep1_stroma_admix": {
+   "rc": 0.05359,
+   "old": 0.058666
+  },
+  "xenium_lung_cancer_quick": {
+   "rc": 0.056327,
+   "old": 0.055874
+  },
+  "xenium_breast_rep1_dense_admix": {
+   "rc": 0.061843,
+   "old": 0.063681
+  },
+  "iss_mouse_hippocampus_quick": {
+   "rc": 0.072655,
+   "old": 0.068735
+  },
+  "xenium_prime5k_ovarian_admix": {
+   "rc": 0.077804,
+   "old": 0.081406
+  },
+  "cosmx_nsclc_lung5_rep1_full": {
+   "rc": 0.078995,
+   "old": 0.077195
+  },
+  "xenium_breast_rep1_dense_full": {
+   "rc": 0.093013,
+   "old": 0.093362
+  },
+  "xenium_prime5k_ovarian_full": {
+   "rc": 0.09997,
+   "old": 0.098336
+  },
+  "merfish_ileum_full": {
+   "rc": 0.115147,
+   "old": 0.114093
+  },
+  "xenium_pancreas_377_full": {
+   "rc": 0.147922,
+   "old": 0.147592
+  }
+ },
+ "umap": {
+  "xenium_lung_cancer_admix": {
+   "cells": 7865,
+   "types": 7,
+   "untyped": 1
+  },
+  "xenium_breast_rep1_dense_full": {
+   "cells": 11294,
+   "types": 8,
+   "untyped": 2
+  }
+ },
+ "phases_real_share": {
+  "lung_100k": {
+   "BMM iterations": 44.4,
+   "molecule clustering": 6.3,
+   "NCV colours": 44.8,
+   "everything else": 4.5
+  },
+  "lung_1M": {
+   "BMM iterations": 67.5,
+   "molecule clustering": 13.5,
+   "NCV colours": 13.4,
+   "everything else": 5.6
+  },
+  "lung_4M": {
+   "BMM iterations": 74.2,
+   "molecule clustering": 13.1,
+   "NCV colours": 8.2,
+   "everything else": 4.5
+  },
+  "lung_all": {
+   "BMM iterations": 64.6,
+   "molecule clustering": 22.6,
+   "NCV colours": 8.4,
+   "everything else": 4.4
+  },
+  "prime5k_100k": {
+   "BMM iterations": 27.4,
+   "molecule clustering": 32.7,
+   "NCV colours": 37.6,
+   "everything else": 2.3
+  },
+  "prime5k_1M": {
+   "BMM iterations": 41.5,
+   "molecule clustering": 29.9,
+   "NCV colours": 25.6,
+   "everything else": 3.0
+  },
+  "prime5k_8M": {
+   "BMM iterations": 36.8,
+   "molecule clustering": 42.5,
+   "NCV colours": 17.7,
+   "everything else": 3.0
+  },
+  "cosmx_wtx_colon_full": {
+   "BMM iterations": 15.4,
+   "molecule clustering": 78.9,
+   "NCV colours": 4.5,
+   "everything else": 1.2
+  }
+ },
+ "phases_crop_GIr": {
+  "osmfish_g35_20k": {
+   "BMM iterations": 11.64,
+   "molecule clustering": 1.55,
+   "NCV colours": 47.37,
+   "everything else": 1.14
+  },
+  "xenium_pancreas_g377_20k": {
+   "BMM iterations": 13.3,
+   "molecule clustering": 3.02,
+   "NCV colours": 58.66,
+   "everything else": 1.02
+  },
+  "merfish_ileum_3d_20k": {
+   "BMM iterations": 13.45,
+   "molecule clustering": 2.27,
+   "NCV colours": 63.25,
+   "everything else": 1.4
+  },
+  "cosmx_nsclc_g960_20k": {
+   "BMM iterations": 12.21,
+   "molecule clustering": 12.52,
+   "NCV colours": 59.74,
+   "everything else": 1.0
+  },
+  "sim_circles_g1000_20k": {
+   "BMM iterations": 10.5,
+   "molecule clustering": 12.44,
+   "NCV colours": 56.61,
+   "everything else": 0.93
+  },
+  "xenium_prime5k_20k": {
+   "BMM iterations": 8.03,
+   "molecule clustering": 4.14,
+   "NCV colours": 32.46,
+   "everything else": 0.76
+  },
+  "sim_circles_g5000_10k": {
+   "BMM iterations": 5.29,
+   "molecule clustering": 227.55,
+   "NCV colours": 28.13,
+   "everything else": 0.57
+  },
+  "cosmx_wtx_20k": {
+   "BMM iterations": 12.53,
+   "molecule clustering": 30.66,
+   "NCV colours": 45.88,
+   "everything else": 1.18
+  }
+ },
+ "segmentation_examples": {
+  "xenium_pancreas_377_quick": {
+   "window_um": [
+    5000.00830078125,
+    1250.0013427734375,
+    100
+   ],
+   "molecules": 8379,
+   "noise_fraction": 0.0,
+   "cells_with_molecules": 105,
+   "polygons": 105
+  },
+  "merfish_ileum_quick": {
+   "window_um": [
+    -2817.122,
+    -629.1452,
+    100
+   ],
+   "molecules": 3679,
+   "noise_fraction": 0.0002718129926610492,
+   "cells_with_molecules": 220,
+   "polygons": 130
+  },
+  "cosmx_nsclc_lung5_rep1_quick": {
+   "window_um": [
+    1271.6603466796867,
+    28938.5407324218,
+    100
+   ],
+   "molecules": 44521,
+   "noise_fraction": 0.0006513780013926013,
+   "cells_with_molecules": 284,
+   "polygons": 285
+  },
+  "iss_mouse_hippocampus_quick": {
+   "window_um": [
+    8102.666666666666,
+    4526.666666666666,
+    150
+   ],
+   "molecules": 1567,
+   "noise_fraction": 0.01723037651563497,
+   "cells_with_molecules": 191,
+   "polygons": 191
+  }
+ },
+ "table_datasets": {
+  "xenium_pancreas_377_quick": {
+   "platform": "Xenium",
+   "molecules": 130001,
+   "genes": 376,
+   "wall6_new": 8.294,
+   "wall6_old": 17.891,
+   "rss6_new": 187.449219,
+   "rss6_old": 250.554688,
+   "wall1_new": 35.982,
+   "wall1_old": 47.274,
+   "load": 9.0691665
+  },
+  "xenium_lung_cancer_admix": {
+   "platform": "Xenium",
+   "molecules": 550000,
+   "genes": 377,
+   "wall6_new": 49.903,
+   "wall6_old": 89.62,
+   "rss6_new": 393.292969,
+   "rss6_old": 533.214844,
+   "wall1_new": null,
+   "wall1_old": null,
+   "load": 13.478137
+  },
+  "xenium_breast_rep1_dense_full": {
+   "platform": "Xenium",
+   "molecules": 1991578,
+   "genes": 321,
+   "wall6_new": 138.427,
+   "wall6_old": 272.588,
+   "rss6_new": 1086.507812,
+   "rss6_old": 1906.128906,
+   "wall1_new": null,
+   "wall1_old": null,
+   "load": 5.269345
+  },
+  "xenium_pancreas_377_full": {
+   "platform": "Xenium",
+   "molecules": 1999991,
+   "genes": 377,
+   "wall6_new": 193.886,
+   "wall6_old": 341.532,
+   "rss6_new": 1087.582031,
+   "rss6_old": 1853.558594,
+   "wall1_new": null,
+   "wall1_old": null,
+   "load": 10.277674999999999
+  },
+  "xenium_prime5k_ovarian_quick": {
+   "platform": "Xenium",
+   "molecules": 130000,
+   "genes": 4603,
+   "wall6_new": 72.876,
+   "wall6_old": 65.78,
+   "rss6_new": 352.644531,
+   "rss6_old": 418.304688,
+   "wall1_new": 82.62,
+   "wall1_old": 93.504,
+   "load": 16.740944499999998
+  },
+  "xenium_prime5k_ovarian_full": {
+   "platform": "Xenium",
+   "molecules": 1999997,
+   "genes": 5088,
+   "wall6_new": 242.04,
+   "wall6_old": 614.564,
+   "rss6_new": 1084.453125,
+   "rss6_old": 1993.527344,
+   "wall1_new": null,
+   "wall1_old": null,
+   "load": 9.18225
+  },
+  "cosmx_nsclc_lung5_rep1_full": {
+   "platform": "CosMx SMI",
+   "molecules": 1967437,
+   "genes": 960,
+   "wall6_new": 242.877,
+   "wall6_old": 388.374,
+   "rss6_new": 1099.679688,
+   "rss6_old": 1458.878906,
+   "wall1_new": null,
+   "wall1_old": null,
+   "load": 10.3976695
+  },
+  "cosmx_wtx_colon_quick": {
+   "platform": "CosMx SMI",
+   "molecules": 149771,
+   "genes": 17533,
+   "wall6_new": 34.77,
+   "wall6_old": 91.201,
+   "rss6_new": 1037.546875,
+   "rss6_old": 1754.644531,
+   "wall1_new": null,
+   "wall1_old": null,
+   "load": 7.763948
+  },
+  "merfish_ileum_full": {
+   "platform": "MERFISH",
+   "molecules": 819665,
+   "genes": 241,
+   "wall6_new": 67.402,
+   "wall6_old": 126.684,
+   "rss6_new": 534.363281,
+   "rss6_old": 876.324219,
+   "wall1_new": null,
+   "wall1_old": null,
+   "load": 6.268333500000001
+  },
+  "iss_mouse_hippocampus_quick": {
+   "platform": "ISS",
+   "molecules": 82077,
+   "genes": 84,
+   "wall6_new": 8.893,
+   "wall6_old": 14.328,
+   "rss6_new": 158.304688,
+   "rss6_old": 187.273438,
+   "wall1_new": 29.457,
+   "wall1_old": 37.275,
+   "load": 12.3883335
+  },
+  "osmfish_somatosensory_quick": {
+   "platform": "osmFISH",
+   "molecules": 149997,
+   "genes": 35,
+   "wall6_new": 8.146,
+   "wall6_old": 18.121,
+   "rss6_new": 168.753906,
+   "rss6_old": 233.359375,
+   "wall1_new": null,
+   "wall1_old": null,
+   "load": 9.004999999999999
+  },
+  "starmap_visual_cortex_quick": {
+   "platform": "STARmap",
+   "molecules": 149994,
+   "genes": 1020,
+   "wall6_new": 10.81,
+   "wall6_old": 22.253,
+   "rss6_new": 217.640625,
+   "rss6_old": 268.207031,
+   "wall1_new": null,
+   "wall1_old": null,
+   "load": 9.68
+  }
+ },
+ "aggregate_6thr": {
+  "n_datasets": 77,
+  "n_real": 26,
+  "n_sim": 51,
+  "wall_ratio_median": 0.464312,
+  "wall_ratio_min": 0.015572,
+  "wall_ratio_max": 1.107875,
+  "rss_ratio_median": 0.818138,
+  "cpu_ratio_median": 0.437107,
+  "n_slower": 1,
+  "slower": [
+   "xenium_prime5k_ovarian_quick"
+  ],
+  "load_min": 5.235833,
+  "load_max": 20.566667
+ },
+ "remeasure": {
+  "sweep/xenium_pancreas_377_quick/t1": {
+   "wall_new": 42.81,
+   "wall_old": 54.22,
+   "cpu_new": 42.78,
+   "cpu_old": 54.18,
+   "rss_new_mib": 160.77734375,
+   "rss_old_mib": 186.76171875
+  },
+  "sweep/xenium_pancreas_377_quick/t2": {
+   "wall_new": 22.47,
+   "wall_old": 37.0,
+   "cpu_new": 43.489999999999995,
+   "cpu_old": 70.33,
+   "rss_new_mib": 165.6015625,
+   "rss_old_mib": 193.0390625
+  },
+  "sweep/xenium_pancreas_377_quick/t4": {
+   "wall_new": 12.12,
+   "wall_old": 22.38,
+   "cpu_new": 44.080000000000005,
+   "cpu_old": 79.7,
+   "rss_new_mib": 195.70703125,
+   "rss_old_mib": 235.0703125
+  },
+  "sweep/xenium_pancreas_377_quick/t8": {
+   "wall_new": 7.16,
+   "wall_old": 15.38,
+   "cpu_new": 46.12,
+   "cpu_old": 101.28,
+   "rss_new_mib": 183.99609375,
+   "rss_old_mib": 246.39453125
+  },
+  "sweep/xenium_pancreas_377_quick/t16": {
+   "wall_new": 5.85,
+   "wall_old": 15.55,
+   "cpu_new": 57.44,
+   "cpu_old": 178.97,
+   "rss_new_mib": 198.1875,
+   "rss_old_mib": 253.77734375
+  },
+  "sweep/merfish_ileum_full/t1": {
+   "wall_new": 346.06,
+   "wall_old": 440.15,
+   "cpu_new": 345.63,
+   "cpu_old": 440.0,
+   "rss_new_mib": 503.90234375,
+   "rss_old_mib": 678.203125
+  },
+  "sweep/merfish_ileum_full/t2": {
+   "wall_new": 185.89,
+   "wall_old": 282.81,
+   "cpu_new": 359.68,
+   "cpu_old": 522.29,
+   "rss_new_mib": 516.8359375,
+   "rss_old_mib": 760.8671875
+  },
+  "sweep/merfish_ileum_full/t4": {
+   "wall_new": 104.45,
+   "wall_old": 171.16,
+   "cpu_new": 375.13,
+   "cpu_old": 564.07,
+   "rss_new_mib": 560.25390625,
+   "rss_old_mib": 831.55078125
+  },
+  "sweep/merfish_ileum_full/t8": {
+   "wall_new": 60.03,
+   "wall_old": 119.81,
+   "cpu_new": 385.45,
+   "cpu_old": 665.0699999999999,
+   "rss_new_mib": 545.03125,
+   "rss_old_mib": 879.078125
+  },
+  "sweep/merfish_ileum_full/t16": {
+   "wall_new": 49.43,
+   "wall_old": 98.72,
+   "cpu_new": 494.69,
+   "cpu_old": 856.44,
+   "rss_new_mib": 560.4140625,
+   "rss_old_mib": 895.68359375
+  },
+  "full/merfish_ileum_full/t6": {
+   "wall_new": 69.51,
+   "wall_old": 136.72,
+   "cpu_new": 351.52000000000004,
+   "cpu_old": 615.8,
+   "rss_new_mib": 543.9765625,
+   "rss_old_mib": 884.953125
+  },
+  "full/xenium_breast_rep1_dense_full/t6": {
+   "wall_new": 149.78,
+   "wall_old": 314.13,
+   "cpu_new": 724.01,
+   "cpu_old": 1333.6699999999998,
+   "rss_new_mib": 1083.10546875,
+   "rss_old_mib": 1875.8359375
+  },
+  "full/xenium_pancreas_377_full/t6": {
+   "wall_new": 190.76,
+   "wall_old": 449.02,
+   "cpu_new": 908.28,
+   "cpu_old": 1537.0,
+   "rss_new_mib": 1091.56640625,
+   "rss_old_mib": 1779.21484375
+  },
+  "full/cosmx_nsclc_lung5_rep1_full/t6": {
+   "wall_new": 374.22,
+   "wall_old": 662.67,
+   "cpu_new": 1544.6200000000001,
+   "cpu_old": 1984.47,
+   "rss_new_mib": 1100.91015625,
+   "rss_old_mib": 1500.11328125
+  },
+  "full/xenium_prime5k_ovarian_full/t6": {
+   "wall_new": 376.55,
+   "wall_old": 1190.86,
+   "cpu_new": 1618.25,
+   "cpu_old": 2451.09,
+   "rss_new_mib": 1083.35546875,
+   "rss_old_mib": 1876.84765625
+  }
+ },
+ "determinism": {
+  "rc": {
+   "identical": 70,
+   "datasets": 70
+  },
+  "old": {
+   "identical": 0,
+   "datasets": 70
+  }
+ },
+ "iss_cells": {
+  "v0083-real": [
+   10634,
+   10736,
+   10671
+  ],
+  "v0083-t1": [
+   10051
+  ],
+  "rc1636-real": [
+   9996,
+   9996,
+   9996
+  ],
+  "rc1636-t1": [
+   10037
+  ]
+ },
+ "accuracy_sim": {
+  "n": 51,
+  "delta_median": 0.001003,
+  "delta_min": -0.008315,
+  "delta_max": 0.018619,
+  "n_better_gt_0.005": 11,
+  "n_worse_gt_0.005": 4,
+  "worst": "sim_mixed_sizes_g100",
+  "best": "strec_dense_s1_disjoint_noprior",
+  "ari_delta_median": 0.001701
+ },
+ "ladders": {
+  "lung_100k/t1": {
+   "molecules": 99779,
+   "genes": 333,
+   "wall": 97.421,
+   "cpu": 82.962,
+   "cpu_before": 88.331,
+   "rss_mib": 197.1875,
+   "rss_before_mib": 194.92578125,
+   "bytes_per_molecule": 2072.2404513975885
+  },
+  "lung_1M/t1": {
+   "molecules": 1000001,
+   "genes": 377,
+   "wall": 1111.137,
+   "cpu": 680.91,
+   "cpu_before": 744.883,
+   "rss_mib": 638.91015625,
+   "rss_before_mib": 804.29296875,
+   "bytes_per_molecule": 669.9451860548139
+  },
+  "lung_250k/t1": {
+   "molecules": 249915,
+   "genes": 362,
+   "wall": 187.326,
+   "cpu": 166.489,
+   "cpu_before": 175.94,
+   "rss_mib": 281.2421875,
+   "rss_before_mib": 304.65234375,
+   "bytes_per_molecule": 1180.0164375887803
+  },
+  "lung_2M/t1": {
+   "molecules": 2000000,
+   "genes": 377,
+   "wall": 1994.91,
+   "cpu": 1498.778,
+   "cpu_before": 1588.702,
+   "rss_mib": 1134.9765625,
+   "rss_before_mib": 1480.18359375,
+   "bytes_per_molecule": 595.054592
+  },
+  "lung_500k/t1": {
+   "molecules": 499991,
+   "genes": 376,
+   "wall": 325.079,
+   "cpu": 294.261,
+   "cpu_before": 297.845,
+   "rss_mib": 394.33984375,
+   "rss_before_mib": 488.77734375,
+   "bytes_per_molecule": 827.0054780986057
+  },
+  "prime5k_100k/t1": {
+   "molecules": 91896,
+   "genes": 2188,
+   "wall": 136.183,
+   "cpu": 121.459,
+   "cpu_before": 122.274,
+   "rss_mib": 276.546875,
+   "rss_before_mib": 372.4375,
+   "bytes_per_molecule": 3155.528162270393
+  },
+  "prime5k_250k/t1": {
+   "molecules": 243328,
+   "genes": 3100,
+   "wall": 223.078,
+   "cpu": 201.009,
+   "cpu_before": 273.213,
+   "rss_mib": 397.80078125,
+   "rss_before_mib": 618.421875,
+   "bytes_per_molecule": 1714.247238295634
+  },
+  "prime5k_500k/t1": {
+   "molecules": 493827,
+   "genes": 3674,
+   "wall": 492.007,
+   "cpu": 423.593,
+   "cpu_before": 594.18,
+   "rss_mib": 557.69921875,
+   "rss_before_mib": 845.99609375,
+   "bytes_per_molecule": 1184.2001672650545
+  },
+  "cosmx_wtx_colon_full/t8": {
+   "molecules": 2969193,
+   "genes": 18935,
+   "wall": 1168.606,
+   "cpu": 5895.668,
+   "cpu_before": 15422.583,
+   "rss_mib": 2206.9609375,
+   "rss_before_mib": 3188.1640625,
+   "bytes_per_molecule": 779.3923372444971
+  },
+  "lung_100k/t8": {
+   "molecules": 99779,
+   "genes": 333,
+   "wall": 24.793,
+   "cpu": 73.184,
+   "cpu_before": 127.803,
+   "rss_mib": 205.3671875,
+   "rss_before_mib": 253.78515625,
+   "bytes_per_molecule": 2158.2006634662603
+  },
+  "lung_1M/t8": {
+   "molecules": 1000001,
+   "genes": 377,
+   "wall": 122.41,
+   "cpu": 579.478,
+   "cpu_before": 840.603,
+   "rss_mib": 675.93359375,
+   "rss_before_mib": 1158.140625,
+   "bytes_per_molecule": 708.7670352329648
+  },
+  "lung_250k/t8": {
+   "molecules": 249915,
+   "genes": 362,
+   "wall": 40.521,
+   "cpu": 149.534,
+   "cpu_before": 236.285,
+   "rss_mib": 282.66015625,
+   "rss_before_mib": 399.63671875,
+   "bytes_per_molecule": 1185.9658523898124
+  },
+  "lung_2M/t8": {
+   "molecules": 2000000,
+   "genes": 377,
+   "wall": 296.859,
+   "cpu": 1455.868,
+   "cpu_before": 1803.103,
+   "rss_mib": 1181.828125,
+   "rss_before_mib": 1998.8125,
+   "bytes_per_molecule": 619.618304
+  },
+  "lung_4M/t8": {
+   "molecules": 4000000,
+   "genes": 377,
+   "wall": 582.874,
+   "cpu": 2781.878,
+   "cpu_before": 3652.668,
+   "rss_mib": 2187.2109375,
+   "rss_before_mib": 3837.203125,
+   "bytes_per_molecule": 573.364224
+  },
+  "lung_500k/t8": {
+   "molecules": 499991,
+   "genes": 376,
+   "wall": 59.361,
+   "cpu": 262.725,
+   "cpu_before": 417.833,
+   "rss_mib": 409.76171875,
+   "rss_before_mib": 650.05078125,
+   "bytes_per_molecule": 859.3480762653728
+  },
+  "lung_8M/t8": {
+   "molecules": 8000000,
+   "genes": 377,
+   "wall": 3469.862,
+   "cpu": 6890.605,
+   "cpu_before": 7995.213,
+   "rss_mib": 4156.4375,
+   "rss_before_mib": 6899.765625,
+   "bytes_per_molecule": 544.792576
+  },
+  "lung_all/t8": {
+   "molecules": 10605483,
+   "genes": 377,
+   "wall": 3789.157,
+   "cpu": 10051.361,
+   "cpu_before": 11695.597,
+   "rss_mib": 5446.859375,
+   "rss_before_mib": 8365.390625,
+   "bytes_per_molecule": 538.5370959531027
+  },
+  "prime5k_100k/t8": {
+   "molecules": 91896,
+   "genes": 2188,
+   "wall": 43.4,
+   "cpu": 98.564,
+   "cpu_before": 158.34,
+   "rss_mib": 300.71484375,
+   "rss_before_mib": 454.4921875,
+   "bytes_per_molecule": 3431.295899712719
+  },
+  "prime5k_1M/t8": {
+   "molecules": 995906,
+   "genes": 4358,
+   "wall": 152.054,
+   "cpu": 823.858,
+   "cpu_before": 1383.139,
+   "rss_mib": 843.015625,
+   "rss_before_mib": 1501.30078125,
+   "bytes_per_molecule": 887.5997855219267
+  },
+  "prime5k_250k/t8": {
+   "molecules": 243328,
+   "genes": 3100,
+   "wall": 44.272,
+   "cpu": 183.481,
+   "cpu_before": 359.202,
+   "rss_mib": 436.359375,
+   "rss_before_mib": 679.3828125,
+   "bytes_per_molecule": 1880.4082062072594
+  },
+  "prime5k_2M/t8": {
+   "molecules": 1998693,
+   "genes": 4847,
+   "wall": 353.582,
+   "cpu": 1985.402,
+   "cpu_before": 2869.961,
+   "rss_mib": 1253.78125,
+   "rss_before_mib": 2386.0234375,
+   "bytes_per_molecule": 657.7723182099502
+  },
+  "prime5k_4M/t8": {
+   "molecules": 3999940,
+   "genes": 5043,
+   "wall": 1615.144,
+   "cpu": 4677.524,
+   "cpu_before": 5763.145,
+   "rss_mib": 2269.46484375,
+   "rss_before_mib": 3855.48046875,
+   "bytes_per_molecule": 594.9355160327405
+  },
+  "prime5k_500k/t8": {
+   "molecules": 493827,
+   "genes": 3674,
+   "wall": 77.109,
+   "cpu": 378.981,
+   "cpu_before": 699.127,
+   "rss_mib": 583.7578125,
+   "rss_before_mib": 982.66796875,
+   "bytes_per_molecule": 1239.5321276479415
+  },
+  "prime5k_8M/t8": {
+   "molecules": 8000091,
+   "genes": 5078,
+   "wall": 1867.672,
+   "cpu": 9677.587,
+   "cpu_before": 13264.874,
+   "rss_mib": 4338.40234375,
+   "rss_before_mib": 7034.17578125,
+   "bytes_per_molecule": 568.6366037586322
+  }
+ },
+ "exponents": {
+  "lung/t1/cpu_s": 0.969,
+  "lung/t1/wall_s": 1.051,
+  "lung/t1/peak_rss_kb": 0.58,
+  "lung/t1/confidence": 1.102,
+  "lung/t1/molecule_graph": 1.61,
+  "lung/t1/mol_clustering": 1.348,
+  "lung/t1/bmm_iterations": 1.117,
+  "lung/t1/ncv_colors": 0.405,
+  "lung/t1/polygons": 1.237,
+  "lung/t8/cpu_s": 1.076,
+  "lung/t8/wall_s": 1.132,
+  "lung/t8/peak_rss_kb": 0.73,
+  "lung/t8/confidence": 1.043,
+  "lung/t8/molecule_graph": 1.25,
+  "lung/t8/mol_clustering": 1.318,
+  "lung/t8/bmm_iterations": 1.147,
+  "lung/t8/ncv_colors": 0.707,
+  "lung/t8/polygons": 1.24,
+  "prime5k/t1/cpu_s": 0.729,
+  "prime5k/t1/wall_s": 0.748,
+  "prime5k/t1/peak_rss_kb": 0.414,
+  "prime5k/t1/confidence": 1.01,
+  "prime5k/t1/molecule_graph": 1.026,
+  "prime5k/t1/mol_clustering": 0.491,
+  "prime5k/t1/bmm_iterations": 1.042,
+  "prime5k/t1/ncv_colors": 0.622,
+  "prime5k/t1/polygons": 1.188,
+  "prime5k/t8/cpu_s": 1.068,
+  "prime5k/t8/wall_s": 0.968,
+  "prime5k/t8/peak_rss_kb": 0.587,
+  "prime5k/t8/confidence": 1.101,
+  "prime5k/t8/molecule_graph": 1.017,
+  "prime5k/t8/mol_clustering": 1.228,
+  "prime5k/t8/bmm_iterations": 1.101,
+  "prime5k/t8/ncv_colors": 0.864,
+  "prime5k/t8/polygons": 1.383
+ },
+ "crop_threads": {
+  "xenium_pancreas_g377_20k/t1": {
+   "wall_min": 18.896,
+   "cpu_median": 21.266
+  },
+  "xenium_pancreas_g377_20k/t2": {
+   "wall_min": 15.932,
+   "cpu_median": 19.185
+  },
+  "xenium_pancreas_g377_20k/t4": {
+   "wall_min": 14.426,
+   "cpu_median": 20.011
+  },
+  "xenium_pancreas_g377_20k/t8": {
+   "wall_min": 13.722,
+   "cpu_median": 21.173
+  },
+  "xenium_pancreas_g377_20k/t16": {
+   "wall_min": 13.78,
+   "cpu_median": 24.302
+  },
+  "xenium_prime5k_20k/t1": {
+   "wall_min": 14.522,
+   "cpu_median": 14.542
+  },
+  "xenium_prime5k_20k/t2": {
+   "wall_min": 12.494,
+   "cpu_median": 16.547
+  },
+  "xenium_prime5k_20k/t4": {
+   "wall_min": 12.139,
+   "cpu_median": 16.749
+  },
+  "xenium_prime5k_20k/t8": {
+   "wall_min": 10.211,
+   "cpu_median": 16.638
+  },
+  "xenium_prime5k_20k/t16": {
+   "wall_min": 10.985,
+   "cpu_median": 17.973
+  }
+ }
+}
